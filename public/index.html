@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Concejo Deliberante - Votaciones</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="login-shell hidden" id="loginShell">
+    <div class="login-card">
+      <h2>Ingreso de concejales</h2>
+      <p>Accede con tu usuario para votar en la sesión.</p>
+      <label>
+        Usuario
+        <input type="text" id="username" autocomplete="username" />
+      </label>
+      <label>
+        Contraseña
+        <input type="password" id="password" autocomplete="current-password" />
+      </label>
+      <button id="loginBtn">Ingresar</button>
+      <div class="login-help">Usuarios demo: sofia, juan, maria, carlos, ana, pedro, lucia, diego, marta, raul, patricia, leo. Contraseña: 1234</div>
+      <div id="loginMessage" class="message"></div>
+    </div>
+  </div>
+
+  <div class="app-shell hidden" id="appShell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">🏛️</div>
+        <div>
+          <strong>CONCEJO</strong>
+          <span>DELlBERANTE</span>
+        </div>
+      </div>
+      <nav>
+        <a href="#" class="nav-link active" data-view="session">Dashboard</a>
+        <a href="#" class="nav-link" data-view="usuarios">Usuarios</a>
+        <a href="#" class="nav-link" data-view="concejales">Concejales</a>
+        <a href="#" class="nav-link" data-view="bloques">Bloques</a>
+        <a href="#" class="nav-link" data-view="municipios">Municipios</a>
+        <a href="#" class="nav-link" data-view="sesiones">Sesiones</a>
+        <a href="#" class="nav-link" data-view="asistencia-qr">Asistencia QR</a>
+        <a href="#" class="nav-link" data-view="quorum">Quórum</a>
+        <a href="#" class="nav-link" data-view="orden-del-dia">Orden del Día</a>
+        <a href="#" class="nav-link" data-view="proyectos">Proyectos</a>
+        <a href="#" class="nav-link" data-view="votaciones">Votaciones</a>
+        <a href="#" class="nav-link" data-view="reportes">Reportes</a>
+        <a href="#" class="nav-link" data-view="estadisticas">Estadísticas</a>
+        <a href="#" class="nav-link" data-view="auditoria">Auditoría</a>
+        <a href="#" class="nav-link" data-view="configuracion">Configuración</a>
+        <a class="external-link" href="/screen" target="_blank">Pantalla pública</a>
+      </nav>
+      <div class="profile-card">
+        <div class="profile-avatar" id="profileAvatar">SP</div>
+        <div>
+          <strong id="profileName">Sofía Pérez</strong>
+          <span id="profileRole">Presidenta</span>
+        </div>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="top-bar">
+        <div>
+          <p class="session-label" id="sessionType">Sesión Ordinaria</p>
+          <h1 id="sessionTitle">Votación en curso</h1>
+        </div>
+        <div class="status-pill">
+          <span class="status-dot"></span>
+          <span id="statusText">Votación abierta</span>
+        </div>
+      </header>
+
+      <section id="sessionView">
+        <section class="content-grid">
+          <article class="project-card">
+            <div class="project-tag" id="projectTag">Proyecto Nº 125/2026</div>
+            <h2 id="projectTitle">Declaración de interés municipal la Feria del Libro 2026</h2>
+            <p id="projectDescription">Declarar de interés municipal la realización de la Feria del Libro 2026 a desarrollarse en nuestra ciudad.</p>
+            <div class="project-meta">
+              <div>
+                <span>Iniciado por</span>
+                <strong id="projectStartedBy">Bloque Unión por la Ciudad</strong>
+              </div>
+              <div>
+                <span>Tipo</span>
+                <strong id="projectType">Declaración</strong>
+              </div>
+            </div>
+            <div class="project-meta">
+              <div>
+                <span>Iniciado a las</span>
+                <strong id="projectStartedAt">10:15 hs</strong>
+              </div>
+            </div>
+          </article>
+
+          <aside class="summary-card">
+            <h3>Resumen en tiempo real</h3>
+            <div class="summary-grid">
+              <div class="summary-item affirmativo">
+                <span id="affirmativeCount">8</span>
+                <small>AFIRMATIVO</small>
+              </div>
+              <div class="summary-item negativo">
+                <span id="negativeCount">2</span>
+                <small>NEGATIVO</small>
+              </div>
+              <div class="summary-item abstencion">
+                <span id="abstentionCount">1</span>
+                <small>ABSTENCIÓN</small>
+              </div>
+              <div class="summary-item pendientes">
+                <span id="pendingCount">1</span>
+                <small>PENDIENTES</small>
+              </div>
+            </div>
+            <div class="progress-row">
+              <span>Concejales conectados</span>
+              <strong id="connectedCount">10 / 12</strong>
+            </div>
+            <div class="progress-bar"><div id="connectedBar" style="width:83%"></div></div>
+          </aside>
+        </section>
+
+        <section class="vote-panel">
+          <div class="vote-card">
+            <h3>¿Cómo desea votar?</h3>
+            <div class="vote-buttons">
+              <button class="vote-btn affirmativo" data-option="afirmativo">AFIRMATIVO</button>
+              <button class="vote-btn negativo" data-option="negativo">NEGATIVO</button>
+              <button class="vote-btn abstencion" data-option="abstencion">ABSTENCIÓN</button>
+            </div>
+            <div id="message" class="message"></div>
+          </div>
+
+          <div class="mobile-preview">
+            <h3>Vista móvil</h3>
+            <div class="mobile-card">
+              <div class="mobile-header" id="mobileProjectTag">Proyecto Nº 125/2026</div>
+              <div class="mobile-body">
+                <h4 id="mobileProjectTitle">Declaración de interés municipal la Feria del Libro 2026</h4>
+                <p>¿Cómo desea votar?</p>
+                <button class="mobile-btn affirmativo" data-option="afirmativo">AFIRMATIVO</button>
+                <button class="mobile-btn negativo" data-option="negativo">NEGATIVO</button>
+                <button class="mobile-btn abstencion" data-option="abstencion">ABSTENCIÓN</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="project-list-card">
+          <h3>Proyectos de la sesión</h3>
+          <div id="projectList" class="project-list"></div>
+        </section>
+      </section>
+
+      <section id="historyView" class="hidden">
+        <div class="history-card">
+          <h3>Historial de votaciones</h3>
+          <div id="historyList" class="history-list"></div>
+        </div>
+      </section>
+
+      <section id="moduleView" class="hidden">
+        <div class="module-card">
+          <div class="module-header">
+            <h2 id="moduleTitle">Módulo</h2>
+            <p id="moduleDescription">Selecciona un módulo de la barra lateral para ver su estructura y acciones.</p>
+          </div>
+          <div class="module-body">
+            <div class="module-summary">
+              <div class="summary-card small">
+                <h4>Objetivo</h4>
+                <p id="moduleObjective">Administrar el módulo seleccionado.</p>
+              </div>
+              <div class="summary-card small">
+                <h4>Estado</h4>
+                <p id="moduleStatus">Estructura de módulos disponible.</p>
+              </div>
+            </div>
+            <div class="module-actions">
+              <button id="moduleActionPrimary">Ver detalles</button>
+              <button id="moduleActionSecondary">Explorar módulo</button>
+            </div>
+            <div id="moduleContent" class="module-content"></div>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

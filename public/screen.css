@@ -1,0 +1,126 @@
+.screen-body {
+  margin: 0;
+  background: #07102a;
+  color: white;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+
+.screen-shell {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 36px;
+}
+
+.screen-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 24px;
+  margin-bottom: 36px;
+}
+
+.session-label {
+  text-transform: uppercase;
+  letter-spacing: 0.16em;
+  color: #7a89b4;
+  margin-bottom: 10px;
+}
+
+.screen-header h1 {
+  margin: 0;
+  font-size: 2.75rem;
+}
+
+.screen-status {
+  padding: 18px 28px;
+  border-radius: 18px;
+  background: #2fa84f;
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+.screen-summary {
+  display: grid;
+  grid-template-columns: 1.5fr 0.9fr;
+  gap: 30px;
+  margin-bottom: 30px;
+}
+
+.screen-summary p {
+  max-width: 680px;
+  color: #c2c9e3;
+  line-height: 1.7;
+}
+
+.screen-meta {
+  display: grid;
+  gap: 12px;
+  align-content: end;
+}
+
+.screen-meta span {
+  display: inline-flex;
+  padding: 14px 18px;
+  border-radius: 18px;
+  background: rgba(255,255,255,0.08);
+  color: #cbd3ec;
+}
+
+.screen-votes {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.screen-card {
+  padding: 28px;
+  border-radius: 28px;
+  display: grid;
+  gap: 12px;
+  background: rgba(255,255,255,0.05);
+}
+
+.screen-card strong {
+  font-size: 3rem;
+  display: block;
+}
+
+.screen-card span {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+}
+
+.screen-councillors {
+  margin-top: 38px;
+}
+
+.councillor-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.councillor-item {
+  padding: 18px;
+  border-radius: 22px;
+  background: rgba(255,255,255,0.08);
+}
+
+.councillor-item span {
+  display: block;
+  margin-top: 8px;
+  color: #b8c1e2;
+}
+
+@media (max-width: 960px) {
+  .screen-summary { grid-template-columns: 1fr; }
+  .screen-votes { grid-template-columns: 1fr 1fr; }
+  .councillor-grid { grid-template-columns: 1fr 1fr; }
+}
+
+@media (max-width: 640px) {
+  .screen-shell { padding: 20px; }
+  .screen-votes { grid-template-columns: 1fr; }
+  .councillor-grid { grid-template-columns: 1fr; }
+}

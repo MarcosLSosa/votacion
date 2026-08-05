@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Pantalla Pública de Votación</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="screen.css" />
+</head>
+<body class="screen-body">
+  <div class="screen-shell">
+    <header class="screen-header">
+      <div>
+        <p class="session-label" id="screenSessionType">Sesión Ordinaria</p>
+        <h1 id="screenProjectTag">Proyecto Nº 125/2026</h1>
+      </div>
+      <div class="screen-status" id="screenResult">APROBADO</div>
+    </header>
+
+    <section class="screen-summary">
+      <div>
+        <h2 id="screenTitle">Declaración de interés municipal la Feria del Libro 2026</h2>
+        <p id="screenDescription">Declarar de interés municipal la realización de la Feria del Libro 2026 a desarrollarse en nuestra ciudad.</p>
+      </div>
+      <div class="screen-meta">
+        <span id="screenStatus">Votación abierta</span>
+        <span id="screenStartedAt">02 de julio de 2026 • 10:32 hs</span>
+      </div>
+    </section>
+
+    <section class="screen-votes">
+      <div class="screen-card affirmativo">
+        <strong id="screenAffirmative">8</strong>
+        <span>AFIRMATIVO</span>
+      </div>
+      <div class="screen-card negativo">
+        <strong id="screenNegative">2</strong>
+        <span>NEGATIVO</span>
+      </div>
+      <div class="screen-card abstencion">
+        <strong id="screenAbstention">1</strong>
+        <span>ABSTENCIÓN</span>
+      </div>
+      <div class="screen-card pendientes">
+        <strong id="screenPending">1</strong>
+        <span>PENDIENTES</span>
+      </div>
+    </section>
+
+    <section class="screen-councillors">
+      <h3>Concejales conectados</h3>
+      <div class="councillor-grid" id="councillorList"></div>
+    </section>
+  </div>
+  <script src="screen.js"></script>
+</body>
+</html>
