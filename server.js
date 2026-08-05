@@ -1,5 +1,7 @@
 const express = require('express');
 const path = require('path');
+const fs = require('fs');
+const Database = require('better-sqlite3');
 const cors = require('cors');
 const crypto = require('crypto');
 
@@ -8,92 +10,279 @@ app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-const councillors = [
-  { id: 1, name: 'Sofía Pérez', role: 'Presidenta', username: 'sofia', password: '1234', connected: true, votes: { 1: 'afirmativo' } },
-  { id: 2, name: 'Juan López', role: 'Vicepresidente', username: 'juan', password: '1234', connected: true, votes: { 1: 'afirmativo' } },
-  { id: 3, name: 'María Gómez', role: 'Concejala', username: 'maria', password: '1234', connected: true, votes: { 1: 'afirmativo' } },
-  { id: 4, name: 'Carlos Díaz', role: 'Concejal', username: 'carlos', password: '1234', connected: true, votes: { 1: 'afirmativo' } },
-  { id: 5, name: 'Ana Ruiz', role: 'Concejala', username: 'ana', password: '1234', connected: true, votes: { 1: 'afirmativo' } },
-  { id: 6, name: 'Pedro Martínez', role: 'Concejal', username: 'pedro', password: '1234', connected: true, votes: { 1: 'afirmativo' } },
-  { id: 7, name: 'Lucía Fernández', role: 'Concejala', username: 'lucia', password: '1234', connected: true, votes: { 1: 'negativo' } },
-  { id: 8, name: 'Diego Torres', role: 'Concejal', username: 'diego', password: '1234', connected: true, votes: { 1: 'negativo' } },
-  { id: 9, name: 'Marta Silva', role: 'Concejala', username: 'marta', password: '1234', connected: false, votes: { 1: 'abstencion' } },
-  { id: 10, name: 'Raúl Pérez', role: 'Concejal', username: 'raul', password: '1234', connected: true, votes: {} },
-  { id: 11, name: 'Patricia Ortiz', role: 'Concejala', username: 'patricia', password: '1234', connected: false, votes: { 1: 'afirmativo' } },
-  { id: 12, name: 'Leo Ramos', role: 'Concejal', username: 'leo', password: '1234', connected: false, votes: { 1: 'afirmativo' } }
-];
+const dataDir = path.join(__dirname, 'data');
+const dbPath = path.join(dataDir, 'votacion.db');
+if (!fs.existsSync(dataDir)) {
+  fs.mkdirSync(dataDir, { recursive: true });
+}
 
-const projects = [
-  {
-    id: 1,
-    project: 'Proyecto Nº 125/2026',
-    title: 'Declaración de interés municipal la Feria del Libro 2026',
-    description: 'Declarar de interés municipal la realización de la Feria del Libro 2026 a desarrollarse en nuestra ciudad.',
-    type: 'Declaración',
-    startedBy: 'Bloque Unión por la Ciudad',
-    startedAt: '10:15 hs',
-    startedAtFull: '02 de julio de 2026 • 10:32 hs',
-    status: 'abierta',
-    sessionType: 'Sesión Ordinaria',
-    totalCouncillors: 12,
-    counts: { afirmativo: 8, negativo: 2, abstencion: 1 }
-  },
-  {
-    id: 2,
-    project: 'Ordenanza Nº 216/2026',
-    title: 'Regulación del uso de espacios verdes municipales',
-    description: 'Establecer criterios de uso, protección y mantenimiento para los espacios verdes de la ciudad.',
-    type: 'Ordenanza',
-    startedBy: 'Bloque Ciudadana',
-    startedAt: '09:40 hs',
-    startedAtFull: '01 de julio de 2026 • 09:40 hs',
-    status: 'finalizada',
-    sessionType: 'Sesión Ordinaria',
-    totalCouncillors: 12,
-    counts: { afirmativo: 9, negativo: 1, abstencion: 2 }
-  },
-  {
-    id: 3,
-    project: 'Ordenanza Nº 220/2026',
-    title: 'Actualización de la normativa de tránsito para ciclistas',
-    description: 'Modificar la normativa de tránsito para mejorar la seguridad de ciclistas y peatones.',
-    type: 'Ordenanza',
-    startedBy: 'Bloque Unión por la Ciudad',
-    startedAt: '11:05 hs',
-    startedAtFull: '03 de julio de 2026 • 11:05 hs',
-    status: 'finalizada',
-    sessionType: 'Sesión Ordinaria',
-    totalCouncillors: 12,
-    counts: { afirmativo: 7, negativo: 4, abstencion: 1 }
+const db = new Database(dbPath);
+db.exec(`
+  CREATE TABLE IF NOT EXISTS councillors (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    role TEXT,
+    username TEXT UNIQUE,
+    password TEXT,
+    connected INTEGER,
+    votes TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS projects (
+    id INTEGER PRIMARY KEY,
+    project TEXT,
+    title TEXT,
+    description TEXT,
+    type TEXT,
+    startedBy TEXT,
+    startedAt TEXT,
+    startedAtFull TEXT,
+    status TEXT,
+    sessionType TEXT,
+    totalCouncillors INTEGER,
+    counts TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS sessions (
+    id INTEGER PRIMARY KEY,
+    name TEXT,
+    date TEXT,
+    status TEXT,
+    quorumRequired INTEGER,
+    projectCount INTEGER,
+    active INTEGER
+  );
+
+  CREATE TABLE IF NOT EXISTS order_of_day (
+    id INTEGER PRIMARY KEY,
+    title TEXT,
+    status TEXT,
+    presenter TEXT
+  );
+`);
+
+function rowToCouncillor(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    role: row.role,
+    username: row.username,
+    password: row.password,
+    connected: Boolean(row.connected),
+    votes: JSON.parse(row.votes || '{}')
+  };
+}
+
+function rowToProject(row) {
+  return {
+    id: row.id,
+    project: row.project,
+    title: row.title,
+    description: row.description,
+    type: row.type,
+    startedBy: row.startedBy,
+    startedAt: row.startedAt,
+    startedAtFull: row.startedAtFull,
+    status: row.status,
+    sessionType: row.sessionType,
+    totalCouncillors: row.totalCouncillors,
+    counts: JSON.parse(row.counts || '{}')
+  };
+}
+
+function rowToSession(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    date: row.date,
+    status: row.status,
+    quorumRequired: row.quorumRequired,
+    projectCount: row.projectCount,
+    active: Boolean(row.active)
+  };
+}
+
+function getAllCouncillors() {
+  const rows = db.prepare('SELECT * FROM councillors ORDER BY id').all();
+  return rows.map(rowToCouncillor);
+}
+
+function getCouncillorByUsername(username) {
+  const row = db.prepare('SELECT * FROM councillors WHERE username = ?').get(username);
+  return row ? rowToCouncillor(row) : null;
+}
+
+function getCouncillorById(id) {
+  const row = db.prepare('SELECT * FROM councillors WHERE id = ?').get(id);
+  return row ? rowToCouncillor(row) : null;
+}
+
+function updateCouncillor(updated) {
+  db.prepare(
+    'UPDATE councillors SET name = ?, role = ?, username = ?, password = ?, connected = ?, votes = ? WHERE id = ?'
+  ).run(
+    updated.name,
+    updated.role,
+    updated.username,
+    updated.password,
+    updated.connected ? 1 : 0,
+    JSON.stringify(updated.votes || {}),
+    updated.id
+  );
+}
+
+function getAllProjects() {
+  const rows = db.prepare('SELECT * FROM projects ORDER BY id').all();
+  return rows.map(rowToProject);
+}
+
+function getProject(projectId) {
+  const row = db.prepare('SELECT * FROM projects WHERE id = ?').get(projectId);
+  return row ? rowToProject(row) : null;
+}
+
+function createProject(data) {
+  const stmt = db.prepare(
+    'INSERT INTO projects (project, title, description, type, startedBy, startedAt, startedAtFull, status, sessionType, totalCouncillors, counts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+  );
+  const result = stmt.run(
+    data.project,
+    data.title,
+    data.description,
+    data.type,
+    data.startedBy,
+    data.startedAt,
+    data.startedAtFull,
+    data.status,
+    data.sessionType,
+    data.totalCouncillors,
+    JSON.stringify(data.counts || { afirmativo: 0, negativo: 0, abstencion: 0 })
+  );
+  return getProject(result.lastInsertRowid);
+}
+
+function updateProject(id, data) {
+  const project = getProject(id);
+  if (!project) return null;
+  db.prepare(
+    'UPDATE projects SET project = ?, title = ?, description = ?, type = ?, startedBy = ?, startedAt = ?, startedAtFull = ?, status = ?, sessionType = ?, totalCouncillors = ?, counts = ? WHERE id = ?'
+  ).run(
+    data.project ?? project.project,
+    data.title ?? project.title,
+    data.description ?? project.description,
+    data.type ?? project.type,
+    data.startedBy ?? project.startedBy,
+    data.startedAt ?? project.startedAt,
+    data.startedAtFull ?? project.startedAtFull,
+    data.status ?? project.status,
+    data.sessionType ?? project.sessionType,
+    data.totalCouncillors ?? project.totalCouncillors,
+    JSON.stringify(data.counts ?? project.counts),
+    id
+  );
+  return getProject(id);
+}
+
+function getAllSessions() {
+  const rows = db.prepare('SELECT * FROM sessions ORDER BY id').all();
+  return rows.map(rowToSession);
+}
+
+function getSession(sessionId) {
+  const row = db.prepare('SELECT * FROM sessions WHERE id = ?').get(sessionId);
+  return row ? rowToSession(row) : null;
+}
+
+function createSession(data) {
+  if (data.active) {
+    db.prepare('UPDATE sessions SET active = 0').run();
   }
-];
+  const stmt = db.prepare(
+    'INSERT INTO sessions (name, date, status, quorumRequired, projectCount, active) VALUES (?, ?, ?, ?, ?, ?)'
+  );
+  const result = stmt.run(data.name, data.date, data.status, data.quorumRequired, data.projectCount, data.active ? 1 : 0);
+  return getSession(result.lastInsertRowid);
+}
 
-const sessions = [
-  {
-    id: 1,
-    name: 'Sesión Ordinaria',
-    date: '05 de agosto de 2026',
-    status: 'abierta',
-    quorumRequired: 7,
-    projectCount: 3,
-    active: true
-  },
-  {
-    id: 2,
-    name: 'Sesión Extraordinaria',
-    date: '02 de agosto de 2026',
-    status: 'cerrada',
-    quorumRequired: 7,
-    projectCount: 2,
-    active: false
+function updateSession(id, data) {
+  const session = getSession(id);
+  if (!session) return null;
+  if (data.active) {
+    db.prepare('UPDATE sessions SET active = 0').run();
   }
-];
+  db.prepare(
+    'UPDATE sessions SET name = ?, date = ?, status = ?, quorumRequired = ?, projectCount = ?, active = ? WHERE id = ?'
+  ).run(
+    data.name ?? session.name,
+    data.date ?? session.date,
+    data.status ?? session.status,
+    data.quorumRequired ?? session.quorumRequired,
+    data.projectCount ?? session.projectCount,
+    data.active ? 1 : (data.active === false ? 0 : session.active ? 1 : 0),
+    id
+  );
+  return getSession(id);
+}
 
-const orderOfDay = [
-  { id: 1, title: 'Proyecto Nº 125/2026', status: 'En discusión', presenter: 'Bloque Unión por la Ciudad' },
-  { id: 2, title: 'Ordenanza Nº 216/2026', status: 'Aprobado', presenter: 'Bloque Ciudadana' },
-  { id: 3, title: 'Ordenanza Nº 220/2026', status: 'Rechazado', presenter: 'Bloque Independiente' }
-];
+function seedDatabase() {
+  const councillorCount = db.prepare('SELECT COUNT(*) AS count FROM councillors').get().count;
+  if (councillorCount === 0) {
+    const stmt = db.prepare(
+      'INSERT INTO councillors (id, name, role, username, password, connected, votes) VALUES (?, ?, ?, ?, ?, ?, ?)'
+    );
+    const initial = [
+      [1, 'Sofía Pérez', 'Presidenta', 'sofia', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [2, 'Juan López', 'Vicepresidente', 'juan', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [3, 'María Gómez', 'Concejala', 'maria', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [4, 'Carlos Díaz', 'Concejal', 'carlos', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [5, 'Ana Ruiz', 'Concejala', 'ana', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [6, 'Pedro Martínez', 'Concejal', 'pedro', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [7, 'Lucía Fernández', 'Concejala', 'lucia', '1234', 1, JSON.stringify({ 1: 'negativo' })],
+      [8, 'Diego Torres', 'Concejal', 'diego', '1234', 1, JSON.stringify({ 1: 'negativo' })],
+      [9, 'Marta Silva', 'Concejala', 'marta', '1234', 0, JSON.stringify({ 1: 'abstencion' })],
+      [10, 'Raúl Pérez', 'Concejal', 'raul', '1234', 1, JSON.stringify({})],
+      [11, 'Patricia Ortiz', 'Concejala', 'patricia', '1234', 0, JSON.stringify({ 1: 'afirmativo' })],
+      [12, 'Leo Ramos', 'Concejal', 'leo', '1234', 0, JSON.stringify({ 1: 'afirmativo' })]
+    ];
+    const insert = db.transaction(rows => {
+      for (const row of rows) stmt.run(...row);
+    });
+    insert(initial);
+  }
+
+  const projectCount = db.prepare('SELECT COUNT(*) AS count FROM projects').get().count;
+  if (projectCount === 0) {
+    const stmt = db.prepare(
+      'INSERT INTO projects (id, project, title, description, type, startedBy, startedAt, startedAtFull, status, sessionType, totalCouncillors, counts) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)'
+    );
+    const initial = [
+      [1, 'Proyecto Nº 125/2026', 'Declaración de interés municipal la Feria del Libro 2026', 'Declarar de interés municipal la realización de la Feria del Libro 2026 a desarrollarse en nuestra ciudad.', 'Declaración', 'Bloque Unión por la Ciudad', '10:15 hs', '02 de julio de 2026 • 10:32 hs', 'abierta', 'Sesión Ordinaria', 12, JSON.stringify({ afirmativo: 8, negativo: 2, abstencion: 1 })],
+      [2, 'Ordenanza Nº 216/2026', 'Regulación del uso de espacios verdes municipales', 'Establecer criterios de uso, protección y mantenimiento para los espacios verdes de la ciudad.', 'Ordenanza', 'Bloque Ciudadana', '09:40 hs', '01 de julio de 2026 • 09:40 hs', 'finalizada', 'Sesión Ordinaria', 12, JSON.stringify({ afirmativo: 9, negativo: 1, abstencion: 2 })],
+      [3, 'Ordenanza Nº 220/2026', 'Actualización de la normativa de tránsito para ciclistas', 'Modificar la normativa de tránsito para mejorar la seguridad de ciclistas y peatones.', 'Ordenanza', 'Bloque Unión por la Ciudad', '11:05 hs', '03 de julio de 2026 • 11:05 hs', 'finalizada', 'Sesión Ordinaria', 12, JSON.stringify({ afirmativo: 7, negativo: 4, abstencion: 1 })]
+    ];
+    const insert = db.transaction(rows => {
+      for (const row of rows) stmt.run(...row);
+    });
+    insert(initial);
+  }
+
+  const sessionCount = db.prepare('SELECT COUNT(*) AS count FROM sessions').get().count;
+  if (sessionCount === 0) {
+    const stmt = db.prepare('INSERT INTO sessions (id, name, date, status, quorumRequired, projectCount, active) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    stmt.run(1, 'Sesión Ordinaria', '05 de agosto de 2026', 'abierta', 7, 3, 1);
+    stmt.run(2, 'Sesión Extraordinaria', '02 de agosto de 2026', 'cerrada', 7, 2, 0);
+  }
+
+  const orderCount = db.prepare('SELECT COUNT(*) AS count FROM order_of_day').get().count;
+  if (orderCount === 0) {
+    const stmt = db.prepare('INSERT INTO order_of_day (id, title, status, presenter) VALUES (?, ?, ?, ?)');
+    stmt.run(1, 'Proyecto Nº 125/2026', 'En discusión', 'Bloque Unión por la Ciudad');
+    stmt.run(2, 'Ordenanza Nº 216/2026', 'Aprobado', 'Bloque Ciudadana');
+    stmt.run(3, 'Ordenanza Nº 220/2026', 'Rechazado', 'Bloque Independiente');
+  }
+}
+
+seedDatabase();
 
 let activeProjectId = 1;
 const tokens = new Map();
@@ -175,6 +364,50 @@ app.get('/api/quorum', (req, res) => {
     quorumReached: connected >= activeSession.quorumRequired,
     present: connected,
     absent: councillors.length - connected
+  });
+});
+
+app.get('/api/attendance', (req, res) => {
+  const attendance = councillors.map(c => ({
+    id: c.id,
+    name: c.name,
+    role: c.role,
+    connected: c.connected,
+    vote: c.votes[activeProjectId] || 'Pendiente'
+  }));
+  res.json(attendance);
+});
+
+app.get('/api/reports', (req, res) => {
+  const totalProjects = projects.length;
+  const openProjects = projects.filter(p => p.status === 'abierta').length;
+  const closedProjects = totalProjects - openProjects;
+  const approvedCount = projects.filter(p => p.counts.afirmativo > p.counts.negativo).length;
+  const rejectedCount = projects.filter(p => p.counts.negativo > p.counts.afirmativo).length;
+  res.json({
+    totalProjects,
+    openProjects,
+    closedProjects,
+    approvedCount,
+    rejectedCount,
+    totalCouncillors: councillors.length,
+    connectedCouncillors: councillors.filter(c => c.connected).length
+  });
+});
+
+app.get('/api/stats', (req, res) => {
+  const activeSession = sessions.find(session => session.active) || sessions[0];
+  const affirmatives = projects.reduce((sum, project) => sum + project.counts.afirmativo, 0);
+  const negatives = projects.reduce((sum, project) => sum + project.counts.negativo, 0);
+  const abstentions = projects.reduce((sum, project) => sum + project.counts.abstencion, 0);
+  res.json({
+    activeSessionName: activeSession.name,
+    activeProjects: projects.filter(project => project.status === 'abierta').length,
+    totalVotes: affirmatives + negatives + abstentions,
+    affirmatives,
+    negatives,
+    abstentions,
+    participationRate: Math.round((councillors.filter(c => c.connected).length / councillors.length) * 100)
   });
 });
 

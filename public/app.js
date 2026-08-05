@@ -228,6 +228,21 @@ async function fetchQuorum() {
   return response.json();
 }
 
+async function fetchAttendance() {
+  const response = await fetch('/api/attendance');
+  return response.json();
+}
+
+async function fetchReports() {
+  const response = await fetch('/api/reports');
+  return response.json();
+}
+
+async function fetchStats() {
+  const response = await fetch('/api/stats');
+  return response.json();
+}
+
 async function login(username, password) {
   const response = await fetch('/api/auth/login', {
     method: 'POST',
@@ -432,18 +447,46 @@ async function renderQuorumModule() {
   moduleContent.appendChild(summary);
 }
 
-function renderReportesModule() {
+async function renderReportesModule() {
   moduleContent.innerHTML = '';
+  const reports = await fetchReports();
+
+  const statsRow = document.createElement('div');
+  statsRow.className = 'quorum-summary';
+  statsRow.innerHTML = `
+    <div><strong>Proyectos totales</strong><p>${reports.totalProjects}</p></div>
+    <div><strong>Proyectos abiertos</strong><p>${reports.openProjects}</p></div>
+    <div><strong>Proyectos cerrados</strong><p>${reports.closedProjects}</p></div>
+    <div><strong>Aprobados</strong><p>${reports.approvedCount}</p></div>
+    <div><strong>Rechazados</strong><p>${reports.rejectedCount}</p></div>
+    <div><strong>Concejales conectados</strong><p>${reports.connectedCouncillors} / ${reports.totalCouncillors}</p></div>
+  `;
+
   const info = document.createElement('p');
-  info.textContent = 'Aquí aparecerán los reportes de votaciones, asistencia y auditoría.';
+  info.textContent = 'Resumen de reportes operativos generados por el sistema.';
   moduleContent.appendChild(info);
+  moduleContent.appendChild(statsRow);
 }
 
-function renderEstadisticasModule() {
+async function renderEstadisticasModule() {
   moduleContent.innerHTML = '';
-  const info = document.createElement('p');
-  info.textContent = 'Dashboard de estadísticas para métricas de votaciones y sesiones.';
-  moduleContent.appendChild(info);
+  const stats = await fetchStats();
+
+  const statsRow = document.createElement('div');
+  statsRow.className = 'quorum-summary';
+  statsRow.innerHTML = `
+    <div><strong>Sesión activa</strong><p>${stats.activeSessionName}</p></div>
+    <div><strong>Proyectos activos</strong><p>${stats.activeProjects}</p></div>
+    <div><strong>Votos totales</strong><p>${stats.totalVotes}</p></div>
+    <div><strong>Afirmativos</strong><p>${stats.affirmatives}</p></div>
+    <div><strong>Negativos</strong><p>${stats.negatives}</p></div>
+    <div><strong>Abstenciones</strong><p>${stats.abstentions}</p></div>
+  `;
+
+  const participation = document.createElement('p');
+  participation.textContent = `Tasa de participación actual: ${stats.participationRate}%`;
+  moduleContent.appendChild(statsRow);
+  moduleContent.appendChild(participation);
 }
 
 function renderAuditoriaModule() {
@@ -484,11 +527,17 @@ async function renderVotacionesModule() {
   moduleContent.appendChild(summary);
 }
 
-function renderAsistenciaQrModule() {
+async function renderAsistenciaQrModule() {
   moduleContent.innerHTML = '';
+  const attendance = await fetchAttendance();
+  const table = renderTable(
+    ['ID', 'Nombre', 'Rol', 'Conectado', 'Voto'],
+    attendance.map(item => [item.id, item.name, item.role, item.connected ? 'Sí' : 'No', item.vote])
+  );
   const info = document.createElement('p');
-  info.textContent = 'Aquí se habilitará la lectura de QR para registrar asistencia.';
+  info.textContent = 'Registro de asistencia y estado de voto de los concejales.';
   moduleContent.appendChild(info);
+  moduleContent.appendChild(table);
 }
 
 function renderProyectosModule() {
@@ -524,10 +573,10 @@ async function renderModuleContent(view) {
       await renderOrdenDelDiaModule();
       break;
     case 'reportes':
-      renderReportesModule();
+      await renderReportesModule();
       break;
     case 'estadisticas':
-      renderEstadisticasModule();
+      await renderEstadisticasModule();
       break;
     case 'auditoria':
       renderAuditoriaModule();
@@ -542,7 +591,7 @@ async function renderModuleContent(view) {
       await renderQuorumModule();
       break;
     case 'asistencia-qr':
-      renderAsistenciaQrModule();
+      await renderAsistenciaQrModule();
       break;
     case 'proyectos':
       renderProyectosModule();
