@@ -102,6 +102,30 @@ Alimento de la pantalla pública `/screen`:
 ```
 `result.label` ∈ `APROBADO | RECHAZADO | EMPATE` (compara afirmativo contra negativo).
 
+### `GET /api/screen`
+Payload único que alimenta la pantalla pública `/screen` en un solo pedido cada 3 s (antes eran 4 requests por refresco). Reúne sesión, concejales con presencia fina, conteos y resultado:
+```json
+{
+  "sesion": { "id": 1, "nombre": "…", "fecha": "…", "estado": "activa",
+              "requerido": 7, "proyectos": 2 },
+  "concejales": [ { "id", "name", "role", "iniciales", "bloque", "bloqueSigla",
+                    "bloqueColor", "conectado", "enLinea", "presente",
+                    "marca", "metodo", "voto" } ],
+  "presencia": { "total": 12, "presentes": 10, "ausentes": 2, "enLinea": 1,
+                 "porcentaje": 83, "quorumAlcanzado": true },
+  "proyecto": { "project": "…", "title": "…", "description": "…", "type": "…",
+                "status": "abierta", "sessionType": "…", "startedAtFull": "…",
+                "counts": { "afirmativo": 8, "negativo": 3, "abstencion": 1, "pendientes": 0 },
+                "total": 12, "emitidos": 12, "participacion": 100, "mayoria": true,
+                "resultado": { "label": "APROBADO", "color": "green" } },
+  "serverAt": "19:35:12"
+}
+```
+- `presente` = está conectado **o** tiene marca en `asistencias` (login por panel o QR); `enLinea` = tiene token vivo en memoria.
+- `sesion` y `proyecto` pueden ser `null` (sesión cerrada / sin proyecto en votación): `/screen` muestra un aviso en vez de romperse.
+- `serverAt` y el reloj de la pantalla salen en formato 24 h (`hour12: false`) para que en el proyector no haya ambigüedad a.m./p.m.
+- `/screen` sigue teniendo plan B: si este endpoint no existe (servidor viejo sin reiniciar), reconstruye el mismo payload con `/api/overview` + `/api/councillors` + `/api/sessions`.
+
 ### `GET /api/asistencia/qr` 🔒
 Devuelve (y genera si no existe) el código de la sesión activa:
 ```json
@@ -166,6 +190,6 @@ Sólo se aceptan `municipio_sede`, `mayoria`, `duracion_votacion`, `pantalla_pub
 
 ## Rutas sin sesión
 
-`/api/session`, `/api/projects`, `/api/history`, `/api/project/:id`, `/api/sessions`, `/api/order-of-day`, `/api/quorum`, `/api/attendance`, `/api/reports`, `/api/stats`, `/api/votaciones`, `/api/overview`, `/api/usuarios`, `/api/councillors`, `/api/bloques`, `/api/municipios` y `POST /api/asistencia/checkin`.
+`/api/session`, `/api/projects`, `/api/history`, `/api/project/:id`, `/api/sessions`, `/api/order-of-day`, `/api/quorum`, `/api/attendance`, `/api/reports`, `/api/stats`, `/api/votaciones`, `/api/overview`, `/api/screen`, `/api/usuarios`, `/api/councillors`, `/api/bloques`, `/api/municipios` y `POST /api/asistencia/checkin`.
 
 Son de lectura (o de marcado de presencia) y están pensadas para la pantalla pública y la página `/asistencia`. Todo lo que escribe datos de administración o revela registro fino exige sesión. Ver limitaciones en `docs/ARQUITECTURA.md`.

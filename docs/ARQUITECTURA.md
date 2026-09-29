@@ -80,7 +80,7 @@ Cosas a saber:
 - `public/vistas/*.html`: sólo el contenido de cada módulo, sin `<html>` ni `<head>`.
 - `public/app.js`: helpers de DOM (`el`, `texto`, `cuerpo`, `etiqueta`, `boton`, `kpis`, `barra`), `api()` (fetch con credenciales, errores en JSON y redirección a `/login` ante 401), un `cargar*` por página y el mapa `CARGADORES`.
 - `public/login.js` y `public/asistencia.js`: páginas independientes, sin shell ni sesión.
-- `public/screen.html` / `screen.js` / `screen.css`: pantalla pública a pantalla completa que consulta `GET /api/overview`.
+- `public/screen.html` / `screen.js` / `screen.css`: pantalla pública a pantalla completa que consulta `GET /api/screen` (un solo pedido cada 3 s) y, si el endpoint no existe, se arma el mismo payload con `/api/overview` + `/api/councillors` + `/api/sessions`.
 - `styles.css`: variables de tema, shell, tablas (`.table-card` con `overflow-x: auto`), KPIs, badges, barras, `.qr-box`, `.config-form`, `.login-body`, `@media print` y un breakpoint en 720 px.
 
 ## Cómo agregar un módulo

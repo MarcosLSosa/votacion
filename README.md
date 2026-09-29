@@ -13,7 +13,7 @@ npm run dev          # mismo pero con node --watch
 PORT=3001 npm start  # puerto alternativo
 ```
 
-Requiere Node 22 o superior (`better-sqlite3` 13). La base `data/votacion.db` se crea sola al primer arranque y carga los datos demo; esa carpeta está gitignoreada, así que borrarla es la forma de resetear el sistema.
+Requiere Node 22 o superior (`better-sqlite3` 13). La base `data/votacion.db` se crea sola al primer arranque y carga los datos demo; esa carpeta está gitignoreada, así que borrarla es la forma de resetear el sistema. Con `VOTACION_DB=/ruta/base.db npm start` se usa otra base (útil para pruebas y demos sin tocar la de siempre).
 
 **Usuarios demo** (clave `1234` para todos): `sofia` (Presidenta), `juan`, `maria`, `carlos`, `ana`, `pedro`, `lucia`, `diego`, `marta`, `raul`, `patricia`, `leo`.
 
@@ -23,7 +23,7 @@ Requiere Node 22 o superior (`better-sqlite3` 13). La base `data/votacion.db` se
 | --- | --- |
 | `/login` | Ingreso de concejales (pública) |
 | `/asistencia?codigo=…` | Marcado de presencia desde el celular (pública) |
-| `/screen` | Pantalla pública de resultados (pública) |
+| `/screen` | Pantalla pública para proyectar: resultado, conteos y presencia (pública, alimenta `GET /api/screen`) |
 | `/` | Redirige a `/dashboard` o a `/login` según la sesión |
 | `/dashboard` | Votación en curso y botones de voto |
 | `/usuarios` `/concejales` `/bloques` `/municipios` | Administración del cuerpo |
@@ -53,7 +53,12 @@ google-chrome --headless=new --remote-debugging-port=9222 about:blank &
 node tests/navegador-cdp.mjs                  # login real, 15 páginas, sin errores de consola
 ```
 
-`smoke-api.sh` hace 101 verificaciones con `curl`; `navegador-cdp.mjs` hace 40 sobre Chrome real por DevTools Protocol (Node 22 ya trae `WebSocket`, no hace falta puppeteer). Última corrida: ambas en verde y cero errores de consola en las 15 páginas.
+`smoke-api.sh` hace 107 verificaciones con `curl`; `navegador-cdp.mjs` hace 49 sobre Chrome real por DevTools Protocol (Node 22 ya trae `WebSocket`, no hace falta puppeteer). Última corrida: ambas en verde, con cero errores de consola en las 15 páginas y en `/screen`. Para no ensuciar `data/votacion.db` se pueden correr con base aislada:
+
+```bash
+VOTACION_DB=/tmp/votacion-test.db PORT=3199 npm start &
+APP_URL=http://localhost:3199 bash tests/smoke-api.sh
+```
 
 ## Estructura
 

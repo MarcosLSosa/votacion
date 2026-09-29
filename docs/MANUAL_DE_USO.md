@@ -48,7 +48,7 @@ Todas las páginas se refrescan solas cada 5 segundos; no hace falta recargar.
 
 ## Pantalla pública
 
-`/screen` es una vista a pantalla completa para proyectar en el recinto: lee `GET /api/overview` y muestra proyecto, conteos y el resultado (`APROBADO` / `RECHAZADO` / `EMPATE`). No exige login. Abrila en una segunda ventana o en el monitor del recinto.
+`/screen` es una vista a pantalla completa para proyectar en el recinto: lee `GET /api/screen` (un solo pedido cada 3 s) y muestra proyecto, resultado (`APROBADO` / `RECHAZADO` / `EMPATE`), las cuatro tarjetas de conteo con su barra y porcentaje, la dona de distribución, la barra de presencia y una ficha por concejal con iniciales, bloque, voto y el detalle de la presencia (`conectado ahora`, `presente por QR · 19:04`, `presente en panel`, `sin conexión ni presencia`). Arriba muestra presentes/total, el estado del quórum y un reloj en vivo del servidor en formato 24 h. No exige login: abrila en una segunda ventana o en el monitor del recinto. Si no hay proyecto en votación o la API no responde, muestra un aviso en vez de datos inventados.
 
 ## Configuración
 
