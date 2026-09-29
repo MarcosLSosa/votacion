@@ -1,0 +1,32 @@
+<div class="kpi-grid">
+  <div class="kpi"><strong id="qrRegistrados">0</strong><span>Marcas de presencia</span></div>
+  <div class="kpi"><strong id="qrTotal">0</strong><span>Concejales del cuerpo</span></div>
+  <div class="kpi"><strong id="qrPendiente">0</strong><span>Sin asistencia</span></div>
+</div>
+
+<div class="table-card">
+  <div class="table-head">
+    <h3>Código de asistencia de la sesión</h3>
+    <p class="muted" id="qrSesion">—</p>
+  </div>
+  <div class="qr-box">
+    <div class="qr-code" id="qrCodigo">------</div>
+    <div class="qr-actions">
+      <a class="btn" id="qrLink" href="#" target="_blank">Abrir link de asistencia</a>
+      <button type="button" class="btn secundario" id="qrCopiar">Copiar link</button>
+    </div>
+  </div>
+  <div id="qrMensaje" class="message"></div>
+</div>
+
+<div class="table-card">
+  <div class="table-head"><h3>Últimas marcas de presencia</h3></div>
+  <table class="data-table">
+    <thead>
+      <tr><th>Hora</th><th>Concejal</th><th>Rol</th><th>Método</th><th>Código</th></tr>
+    </thead>
+    <tbody id="tbodyAsistencias">
+      <tr><td colspan="5" class="muted">Sin marcas registradas.</td></tr>
+    </tbody>
+  </table>
+</div>

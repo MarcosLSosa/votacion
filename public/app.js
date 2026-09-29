@@ -1,736 +1,818 @@
-const loginShell = document.getElementById('loginShell');
-const appShell = document.getElementById('appShell');
-const loginBtn = document.getElementById('loginBtn');
-const loginMessage = document.getElementById('loginMessage');
-const usernameInput = document.getElementById('username');
-const passwordInput = document.getElementById('password');
-const messageEl = document.getElementById('message');
-const voteButtons = document.querySelectorAll('[data-option]');
-const profileAvatar = document.getElementById('profileAvatar');
-const profileName = document.getElementById('profileName');
-const profileRole = document.getElementById('profileRole');
-const projectTag = document.getElementById('projectTag');
-const projectTitle = document.getElementById('projectTitle');
-const projectDescription = document.getElementById('projectDescription');
-const projectStartedBy = document.getElementById('projectStartedBy');
-const projectType = document.getElementById('projectType');
-const projectStartedAt = document.getElementById('projectStartedAt');
-const affirmativeCount = document.getElementById('affirmativeCount');
-const negativeCount = document.getElementById('negativeCount');
-const abstentionCount = document.getElementById('abstentionCount');
-const pendingCount = document.getElementById('pendingCount');
-const connectedCount = document.getElementById('connectedCount');
-const connectedBar = document.getElementById('connectedBar');
-const sessionType = document.getElementById('sessionType');
-const statusText = document.getElementById('statusText');
-const projectList = document.getElementById('projectList');
-const historyView = document.getElementById('historyView');
-const sessionView = document.getElementById('sessionView');
-const moduleView = document.getElementById('moduleView');
-const historyList = document.getElementById('historyList');
-const moduleTitle = document.getElementById('moduleTitle');
-const moduleDescription = document.getElementById('moduleDescription');
-const moduleObjective = document.getElementById('moduleObjective');
-const moduleStatus = document.getElementById('moduleStatus');
-const moduleActionPrimary = document.getElementById('moduleActionPrimary');
-const moduleActionSecondary = document.getElementById('moduleActionSecondary');
-const moduleContent = document.getElementById('moduleContent');
-const navLinks = document.querySelectorAll('.nav-link');
+const TOKEN_KEY = 'votacion:token';
+const USER_KEY = 'votacion:user';
 
-const moduleDefinitions = {
-  usuarios: {
-    title: 'Usuarios',
-    description: 'Administrar cuentas, roles y permisos del sistema.',
-    objective: 'Gestionar usuarios activos y niveles de acceso.',
-    status: 'Módulo listo para implementar gestión de usuarios.',
-    primaryAction: 'Ver usuarios',
-    secondaryAction: 'Agregar usuario'
-  },
-  concejales: {
-    title: 'Concejales',
-    description: 'Monitorear concejales, asistencia y representación por bloque.',
-    objective: 'Gestionar datos personales y presencia en sesión.',
-    status: 'Módulo listo para administrar concejales.',
-    primaryAction: 'Ver concejales',
-    secondaryAction: 'Agregar concejal'
-  },
-  bloques: {
-    title: 'Bloques',
-    description: 'Configurar bloques políticos y sus miembros.',
-    objective: 'Organizar la representación por bloque.',
-    status: 'Módulo listo para administrar bloques.',
-    primaryAction: 'Ver bloques',
-    secondaryAction: 'Nuevo bloque'
-  },
-  municipios: {
-    title: 'Municipios',
-    description: 'Registrar municipios y sus datos de referencia.',
-    objective: 'Mantener la información de jurisdicción local.',
-    status: 'Módulo listo para gestionar municipios.',
-    primaryAction: 'Ver municipios',
-    secondaryAction: 'Agregar municipio'
-  },
-  sesiones: {
-    title: 'Sesiones',
-    description: 'Administrar sesiones, quórum y orden del día.',
-    objective: 'Controlar la agenda y el estado de la sesión.',
-    status: 'Módulo listo para crear y abrir sesiones.',
-    primaryAction: 'Ver sesiones',
-    secondaryAction: 'Nueva sesión'
-  },
-  'asistencia-qr': {
-    title: 'Asistencia QR',
-    description: 'Registrar la asistencia mediante lectura de QR.',
-    objective: 'Controlar la asistencia de concejales en tiempo real.',
-    status: 'Módulo listo para implementar lectura QR.',
-    primaryAction: 'Abrir lector QR',
-    secondaryAction: 'Ver asistencias'
-  },
-  quorum: {
-    title: 'Quórum',
-    description: 'Verificar el quórum necesario para validar la sesión.',
-    objective: 'Asegurar la presencia mínima requerida.',
-    status: 'Módulo listo para monitorear quórum.',
-    primaryAction: 'Ver quórum',
-    secondaryAction: 'Actualizar asistentes'
-  },
-  'orden-del-dia': {
-    title: 'Orden del Día',
-    description: 'Definir los puntos a discutir en la sesión.',
-    objective: 'Estructurar la agenda de votación.',
-    status: 'Módulo listo para planificar el orden del día.',
-    primaryAction: 'Ver agenda',
-    secondaryAction: 'Agregar punto'
-  },
-  proyectos: {
-    title: 'Proyectos',
-    description: 'Administrar los proyectos en discusión y votación.',
-    objective: 'Controlar el flujo de proyectos del concejo.',
-    status: 'Módulo listo para gestionar proyectos.',
-    primaryAction: 'Ver proyectos',
-    secondaryAction: 'Nuevo proyecto'
-  },
-  votaciones: {
-    title: 'Votaciones',
-    description: 'Monitorear votaciones en curso y resultados finales.',
-    objective: 'Supervisar los procesos de votación.',
-    status: 'Módulo listo para registrar votos.',
-    primaryAction: 'Ver votación',
-    secondaryAction: 'Cerrar votación'
-  },
-  reportes: {
-    title: 'Reportes',
-    description: 'Generar reportes de votación, asistencia y gestión.',
-    objective: 'Obtener información para auditoría y análisis.',
-    status: 'Módulo listo para crear reportes.',
-    primaryAction: 'Generar reporte',
-    secondaryAction: 'Ver historial'
-  },
-  estadisticas: {
-    title: 'Estadísticas',
-    description: 'Visualizar métricas de votaciones y asistencia.',
-    objective: 'Analizar la actividad del concejo.',
-    status: 'Módulo listo para mostrar dashboards.',
-    primaryAction: 'Ver métricas',
-    secondaryAction: 'Explorar estadísticas'
-  },
-  auditoria: {
-    title: 'Auditoría',
-    description: 'Registrar eventos e historial de acciones.',
-    objective: 'Guardar trazabilidad de cambios importantes.',
-    status: 'Módulo listo para auditar operaciones.',
-    primaryAction: 'Ver auditoría',
-    secondaryAction: 'Descargar log'
-  },
-  configuracion: {
-    title: 'Configuración',
-    description: 'Ajustar parámetros generales del sistema.',
-    objective: 'Personalizar comportamiento del sistema.',
-    status: 'Módulo listo para configurar la plataforma.',
-    primaryAction: 'Ver configuración',
-    secondaryAction: 'Guardar cambios'
+const pagina = document.body.dataset.page || 'dashboard';
+
+function el(id) {
+  return document.getElementById(id);
+}
+
+function texto(id, valor) {
+  const nodo = el(id);
+  if (nodo) {
+    nodo.textContent = valor === null || valor === undefined ? '—' : String(valor);
   }
-};
-
-const demoUsers = [
-  { id: 1, name: 'Sofía Pérez', email: 'sofia@concejo.local', role: 'Presidenta', status: 'Activo' },
-  { id: 2, name: 'Juan López', email: 'juan@concejo.local', role: 'Vicepresidente', status: 'Activo' },
-  { id: 3, name: 'María Gómez', email: 'maria@concejo.local', role: 'Concejala', status: 'Activo' },
-  { id: 4, name: 'Carlos Díaz', email: 'carlos@concejo.local', role: 'Concejal', status: 'Inactivo' }
-];
-
-const demoConcejales = [
-  { id: 1, name: 'Sofía Pérez', bloque: 'Unión por la Ciudad', role: 'Presidenta', attendance: 'Presente' },
-  { id: 2, name: 'Juan López', bloque: 'Ciudadana', role: 'Vicepresidente', attendance: 'Presente' },
-  { id: 3, name: 'María Gómez', bloque: 'Unión por la Ciudad', role: 'Concejala', attendance: 'Presente' },
-  { id: 4, name: 'Carlos Díaz', bloque: 'Independiente', role: 'Concejal', attendance: 'Ausente' }
-];
-
-const demoBloques = [
-  { id: 1, name: 'Bloque Unión por la Ciudad', members: 5 },
-  { id: 2, name: 'Bloque Ciudadana', members: 4 },
-  { id: 3, name: 'Bloque Independiente', members: 3 }
-];
-
-const demoMunicipios = [
-  { id: 1, name: 'Ciudad Central', department: 'Norte' },
-  { id: 2, name: 'Villa del Río', department: 'Sur' }
-];
-
-const demoSessions = [
-  { id: 1, name: 'Sesión Ordinaria', date: '05 de agosto de 2026', status: 'Abierta', quorum: '10 / 12' },
-  { id: 2, name: 'Sesión Extraordinaria', date: '02 de agosto de 2026', status: 'Cerrada', quorum: '12 / 12' }
-];
-
-const demoAgenda = [
-  { id: 1, topic: 'Proyecto 125/2026', status: 'En discusión' },
-  { id: 2, topic: 'Ordenanza 216/2026', status: 'Aprobado' },
-  { id: 3, topic: 'Ordenanza 220/2026', status: 'Rechazado' }
-];
-
-const demoAuditLog = [
-  { timestamp: '05/08/2026 11:15', user: 'Sofía Pérez', action: 'Inició sesión' },
-  { timestamp: '05/08/2026 11:18', user: 'Juan López', action: 'Registró voto' },
-  { timestamp: '05/08/2026 11:22', user: 'María Gómez', action: 'Agregó proyecto' }
-];
-
-let authToken = null;
-let currentUser = null;
-let activeModule = null;
-
-async function fetchSession() {
-  const response = await fetch('/api/session');
-  return response.json();
 }
 
-async function fetchProjects() {
-  const response = await fetch('/api/projects');
-  return response.json();
-}
-
-async function fetchHistory() {
-  const response = await fetch('/api/history');
-  return response.json();
-}
-
-async function fetchSessions() {
-  const response = await fetch('/api/sessions');
-  return response.json();
-}
-
-async function fetchOrderOfDay() {
-  const response = await fetch('/api/order-of-day');
-  return response.json();
-}
-
-async function fetchQuorum() {
-  const response = await fetch('/api/quorum');
-  return response.json();
-}
-
-async function fetchAttendance() {
-  const response = await fetch('/api/attendance');
-  return response.json();
-}
-
-async function fetchReports() {
-  const response = await fetch('/api/reports');
-  return response.json();
-}
-
-async function fetchStats() {
-  const response = await fetch('/api/stats');
-  return response.json();
-}
-
-async function login(username, password) {
-  const response = await fetch('/api/auth/login', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ username, password })
-  });
-  return response.json();
-}
-
-async function sendVote(option) {
+function leerSesion() {
   try {
-    const response = await fetch('/api/vote', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'x-auth-token': authToken
-      },
-      body: JSON.stringify({ option })
-    });
-
-    const result = await response.json();
-    if (!response.ok) {
-      throw new Error(result.error || 'Error al votar');
-    }
-    messageEl.textContent = '¡Voto registrado correctamente!';
-    messageEl.style.color = '#2fa84f';
-    disableVoteButtons();
-    if (currentUser) {
-      currentUser.voted = true;
-    }
-    return result;
+    return JSON.parse(localStorage.getItem(USER_KEY) || 'null');
   } catch (error) {
-    messageEl.textContent = error.message;
-    messageEl.style.color = '#d93e4a';
+    return null;
+  }
+}
+
+function guardarSesion(token, usuario) {
+  localStorage.setItem(TOKEN_KEY, token);
+  localStorage.setItem(USER_KEY, JSON.stringify(usuario));
+}
+
+function borrarSesion() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+}
+
+function tokenActual() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+async function api(ruta, opciones = {}) {
+  const cabeceras = { 'Content-Type': 'application/json' };
+  if (tokenActual()) {
+    cabeceras['x-auth-token'] = tokenActual();
+  }
+
+  const response = await fetch(ruta, {
+    method: opciones.method || 'GET',
+    headers: { ...cabeceras, ...(opciones.headers || {}) },
+    body: opciones.body ? JSON.stringify(opciones.body) : undefined,
+    credentials: 'same-origin'
+  });
+
+  if (response.status === 401) {
+    borrarSesion();
+    window.location.href = '/login';
+    throw new Error('La sesión expiró.');
+  }
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(data.error || 'El servidor respondió un error.');
+  }
+  return data;
+}
+
+function celda(contenido) {
+  const td = document.createElement('td');
+  if (contenido instanceof Node) {
+    td.appendChild(contenido);
+  } else {
+    td.textContent = contenido === null || contenido === undefined || contenido === '' ? '—' : String(contenido);
+  }
+  return td;
+}
+
+function fila(celdas) {
+  const tr = document.createElement('tr');
+  celdas.forEach(item => tr.appendChild(celda(item)));
+  return tr;
+}
+
+function etiqueta(textoLabel, clase) {
+  const span = document.createElement('span');
+  span.className = `badge ${clase || ''}`.trim();
+  span.textContent = textoLabel;
+  return span;
+}
+
+function boton(textoBoton, accion) {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'btn chico';
+  button.textContent = textoBoton;
+  button.addEventListener('click', accion);
+  return button;
+}
+
+function vaciar(id) {
+  const nodo = el(id);
+  if (nodo) {
+    nodo.innerHTML = '';
+  }
+  return nodo;
+}
+
+function cuerpo(id, filas, columnas) {
+  const tabla = el(id);
+  if (!tabla) {
+    return;
+  }
+  tabla.innerHTML = '';
+  if (filas.length === 0) {
+    const tr = document.createElement('tr');
+    const td = document.createElement('td');
+    td.colSpan = columnas;
+    td.className = 'muted';
+    td.textContent = 'No hay registros cargados.';
+    tr.appendChild(td);
+    tabla.appendChild(tr);
+    return;
+  }
+  filas.forEach(f => tabla.appendChild(f));
+}
+
+function kpis(contenedor, items) {
+  const caja = el(contenedor);
+  if (!caja) {
+    return;
+  }
+  caja.innerHTML = '';
+  items.forEach(([valor, descripcion]) => {
+    const div = document.createElement('div');
+    div.className = 'kpi';
+    const strong = document.createElement('strong');
+    strong.textContent = valor === null || valor === undefined ? '—' : String(valor);
+    const span = document.createElement('span');
+    span.textContent = descripcion;
+    div.append(strong, span);
+    caja.appendChild(div);
+  });
+}
+
+function barra(contenedor, titulo, valor, maximo, clase) {
+  const filaBarra = document.createElement('div');
+  filaBarra.className = 'bar-row';
+  const label = document.createElement('div');
+  label.className = 'bar-label';
+  const nombre = document.createElement('span');
+  nombre.textContent = titulo;
+  const importe = document.createElement('strong');
+  importe.textContent = String(valor);
+  label.append(nombre, importe);
+  const progreso = document.createElement('div');
+  progreso.className = 'bar-track';
+  const interna = document.createElement('div');
+  interna.className = `bar-fill ${clase || ''}`.trim();
+  interna.style.width = `${maximo > 0 ? Math.round((valor / maximo) * 100) : 0}%`;
+  progreso.appendChild(interna);
+  filaBarra.append(label, progreso);
+  contenedor.appendChild(filaBarra);
+}
+
+function fmtNumero(valor) {
+  return new Intl.NumberFormat('es-AR').format(valor || 0);
+}
+
+async function cargarCabecera() {
+  try {
+    const sessions = await api('/api/sessions');
+    const activa = sessions.find(session => session.active) || sessions[0];
+    if (activa) {
+      texto('sessionType', `${activa.name} • ${activa.date}`);
+    }
+  } catch (error) {
     console.error(error);
   }
 }
 
-function disableVoteButtons() {
-  voteButtons.forEach(button => {
-    button.disabled = true;
-    button.style.opacity = 0.7;
-    button.style.cursor = 'default';
-  });
-}
-
-function enableVoteButtons() {
-  voteButtons.forEach(button => {
-    button.disabled = false;
-    button.style.opacity = 1;
-    button.style.cursor = 'pointer';
-  });
-}
-
-function renderSession(data) {
-  projectTag.textContent = data.project;
-  projectTitle.textContent = data.title;
-  projectDescription.textContent = data.description;
-  projectStartedBy.textContent = data.startedBy;
-  projectType.textContent = data.type;
-  projectStartedAt.textContent = data.startedAt;
-  affirmativeCount.textContent = data.counts.afirmativo;
-  negativeCount.textContent = data.counts.negativo;
-  abstentionCount.textContent = data.counts.abstencion;
-  pendingCount.textContent = data.counts.pendientes;
-  connectedCount.textContent = `${data.connectedCouncillors} / ${data.totalCouncillors}`;
-  connectedBar.style.width = `${Math.round((data.connectedCouncillors / data.totalCouncillors) * 100)}%`;
-  sessionType.textContent = data.sessionType;
-  statusText.textContent = data.status === 'abierta' ? 'Votación abierta' : 'Votación cerrada';
-}
-
-function renderProjectList(projects) {
-  projectList.innerHTML = '';
-  projects.forEach(project => {
-    const item = document.createElement('div');
-    item.className = 'project-item';
-    item.innerHTML = `<strong>${project.project}</strong><small>${project.title}</small><span>${project.status === 'abierta' ? 'En curso' : 'Finalizada'}</span>`;
-    projectList.appendChild(item);
-  });
-}
-
-function renderHistory(history) {
-  historyList.innerHTML = '';
-  history.forEach(project => {
-    const item = document.createElement('div');
-    item.className = 'history-item';
-    item.innerHTML = `<strong>${project.project}</strong><span>${project.title}</span><p>${project.counts.afirmativo} Afirmativo · ${project.counts.negativo} Negativo · ${project.counts.abstencion} Abstención</p>`;
-    historyList.appendChild(item);
-  });
-}
-
-function renderTable(headers, rows) {
-  const table = document.createElement('table');
-  table.className = 'module-table';
-
-  const thead = document.createElement('thead');
-  thead.innerHTML = `<tr>${headers.map(header => `<th>${header}</th>`).join('')}</tr>`;
-  table.appendChild(thead);
-
-  const tbody = document.createElement('tbody');
-  rows.forEach(row => {
-    const tr = document.createElement('tr');
-    row.forEach(cell => {
-      const td = document.createElement('td');
-      td.innerHTML = cell;
-      tr.appendChild(td);
-    });
-    tbody.appendChild(tr);
-  });
-  table.appendChild(tbody);
-
-  return table;
-}
-
-function renderUsersModule() {
-  moduleContent.innerHTML = '';
-  const table = renderTable(
-    ['ID', 'Nombre', 'Email', 'Rol', 'Estado'],
-    demoUsers.map(user => [user.id, user.name, user.email, user.role, user.status])
-  );
-  const info = document.createElement('p');
-  info.textContent = 'Listado de usuarios registrados en el sistema.';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(table);
-}
-
-function renderConcejalesModule() {
-  moduleContent.innerHTML = '';
-  const table = renderTable(
-    ['ID', 'Nombre', 'Bloque', 'Rol', 'Asistencia'],
-    demoConcejales.map(member => [member.id, member.name, member.bloque, member.role, member.attendance])
-  );
-  const info = document.createElement('p');
-  info.textContent = 'Concejales activos y su asistencia.';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(table);
-}
-
-function renderBloquesModule() {
-  moduleContent.innerHTML = '';
-  const table = renderTable(
-    ['ID', 'Bloque', 'Miembros'],
-    demoBloques.map(bloque => [bloque.id, bloque.name, bloque.members])
-  );
-  const info = document.createElement('p');
-  info.textContent = 'Bloques políticos y cantidad de miembros.';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(table);
-}
-
-function renderMunicipiosModule() {
-  moduleContent.innerHTML = '';
-  const table = renderTable(
-    ['ID', 'Municipio', 'Departamento'],
-    demoMunicipios.map(municipio => [municipio.id, municipio.name, municipio.department])
-  );
-  const info = document.createElement('p');
-  info.textContent = 'Municipios de jurisdicción con su departamento.';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(table);
-}
-
-async function renderSesionesModule() {
-  moduleContent.innerHTML = '';
-  const sessions = await fetchSessions();
-  const table = renderTable(
-    ['ID', 'Sesión', 'Fecha', 'Estado', 'Quórum requerido', 'Proyectos'],
-    sessions.map(session => [session.id, session.name, session.date, session.status, session.quorumRequired, session.projectCount])
-  );
-  const info = document.createElement('p');
-  info.textContent = 'Sesiones programadas y su estado actual.';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(table);
-}
-
-async function renderOrdenDelDiaModule() {
-  moduleContent.innerHTML = '';
-  const orderItems = await fetchOrderOfDay();
-  const table = renderTable(
-    ['ID', 'Punto', 'Estado', 'Presentador'],
-    orderItems.map(point => [point.id, point.title, point.status, point.presenter])
-  );
-  const info = document.createElement('p');
-  info.textContent = 'Orden del día con los proyectos en discusión.';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(table);
-}
-
-async function renderQuorumModule() {
-  moduleContent.innerHTML = '';
-  const quorum = await fetchQuorum();
-  const summary = document.createElement('div');
-  summary.className = 'quorum-summary';
-  summary.innerHTML = `
-    <div><strong>Sesión activa</strong><p>${quorum.activeSession.name}</p></div>
-    <div><strong>Estado</strong><p>${quorum.activeSession.status}</p></div>
-    <div><strong>Asistentes</strong><p>${quorum.present} / ${quorum.totalCouncillors}</p></div>
-    <div><strong>Quórum necesario</strong><p>${quorum.quorumRequired}</p></div>
-    <div><strong>Quórum alcanzado</strong><p>${quorum.quorumReached ? 'Sí' : 'No'}</p></div>
-    <div><strong>Ausentes</strong><p>${quorum.absent}</p></div>
-  `;
-  moduleContent.appendChild(summary);
-}
-
-async function renderReportesModule() {
-  moduleContent.innerHTML = '';
-  const reports = await fetchReports();
-
-  const statsRow = document.createElement('div');
-  statsRow.className = 'quorum-summary';
-  statsRow.innerHTML = `
-    <div><strong>Proyectos totales</strong><p>${reports.totalProjects}</p></div>
-    <div><strong>Proyectos abiertos</strong><p>${reports.openProjects}</p></div>
-    <div><strong>Proyectos cerrados</strong><p>${reports.closedProjects}</p></div>
-    <div><strong>Aprobados</strong><p>${reports.approvedCount}</p></div>
-    <div><strong>Rechazados</strong><p>${reports.rejectedCount}</p></div>
-    <div><strong>Concejales conectados</strong><p>${reports.connectedCouncillors} / ${reports.totalCouncillors}</p></div>
-  `;
-
-  const info = document.createElement('p');
-  info.textContent = 'Resumen de reportes operativos generados por el sistema.';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(statsRow);
-}
-
-async function renderEstadisticasModule() {
-  moduleContent.innerHTML = '';
-  const stats = await fetchStats();
-
-  const statsRow = document.createElement('div');
-  statsRow.className = 'quorum-summary';
-  statsRow.innerHTML = `
-    <div><strong>Sesión activa</strong><p>${stats.activeSessionName}</p></div>
-    <div><strong>Proyectos activos</strong><p>${stats.activeProjects}</p></div>
-    <div><strong>Votos totales</strong><p>${stats.totalVotes}</p></div>
-    <div><strong>Afirmativos</strong><p>${stats.affirmatives}</p></div>
-    <div><strong>Negativos</strong><p>${stats.negatives}</p></div>
-    <div><strong>Abstenciones</strong><p>${stats.abstentions}</p></div>
-  `;
-
-  const participation = document.createElement('p');
-  participation.textContent = `Tasa de participación actual: ${stats.participationRate}%`;
-  moduleContent.appendChild(statsRow);
-  moduleContent.appendChild(participation);
-}
-
-function renderAuditoriaModule() {
-  moduleContent.innerHTML = '';
-  const table = renderTable(
-    ['Fecha y hora', 'Usuario', 'Acción'],
-    demoAuditLog.map(log => [log.timestamp, log.user, log.action])
-  );
-  const info = document.createElement('p');
-  info.textContent = 'Registro de eventos y cambios importantes.';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(table);
-}
-
-function renderConfiguracionModule() {
-  moduleContent.innerHTML = '';
-  const info = document.createElement('p');
-  info.textContent = 'Opciones del sistema para personalizar la plataforma.';
-  const options = document.createElement('ul');
-  options.innerHTML = '<li>Preferencias generales</li><li>Notificaciones</li><li>Seguridad</li><li>Temas</li>';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(options);
-}
-
-async function renderVotacionesModule() {
-  moduleContent.innerHTML = '';
-  const sessionData = await fetchSession();
-  const summary = document.createElement('div');
-  summary.className = 'quorum-summary';
-  summary.innerHTML = `
-    <div><strong>Proyecto</strong><p>${sessionData.project}</p></div>
-    <div><strong>Votos afirmativos</strong><p>${sessionData.counts.afirmativo}</p></div>
-    <div><strong>Votos negativos</strong><p>${sessionData.counts.negativo}</p></div>
-    <div><strong>Abstenciones</strong><p>${sessionData.counts.abstencion}</p></div>
-    <div><strong>Pendientes</strong><p>${sessionData.counts.pendientes}</p></div>
-    <div><strong>Estado</strong><p>${sessionData.status === 'abierta' ? 'Abierta' : 'Cerrada'}</p></div>
-  `;
-  moduleContent.appendChild(summary);
-}
-
-async function renderAsistenciaQrModule() {
-  moduleContent.innerHTML = '';
-  const attendance = await fetchAttendance();
-  const table = renderTable(
-    ['ID', 'Nombre', 'Rol', 'Conectado', 'Voto'],
-    attendance.map(item => [item.id, item.name, item.role, item.connected ? 'Sí' : 'No', item.vote])
-  );
-  const info = document.createElement('p');
-  info.textContent = 'Registro de asistencia y estado de voto de los concejales.';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(table);
-}
-
-function renderProyectosModule() {
-  moduleContent.innerHTML = '';
-  const table = renderTable(
-    ['ID', 'Proyecto', 'Tipo', 'Estado'],
-    demoAgenda.map(point => [point.id, point.topic, 'Ordenanza', point.status])
-  );
-  const info = document.createElement('p');
-  info.textContent = 'Proyectos en curso y su estado.';
-  moduleContent.appendChild(info);
-  moduleContent.appendChild(table);
-}
-
-async function renderModuleContent(view) {
-  switch (view) {
-    case 'usuarios':
-      renderUsersModule();
-      break;
-    case 'concejales':
-      renderConcejalesModule();
-      break;
-    case 'bloques':
-      renderBloquesModule();
-      break;
-    case 'municipios':
-      renderMunicipiosModule();
-      break;
-    case 'sesiones':
-      await renderSesionesModule();
-      break;
-    case 'orden-del-dia':
-      await renderOrdenDelDiaModule();
-      break;
-    case 'reportes':
-      await renderReportesModule();
-      break;
-    case 'estadisticas':
-      await renderEstadisticasModule();
-      break;
-    case 'auditoria':
-      renderAuditoriaModule();
-      break;
-    case 'configuracion':
-      renderConfiguracionModule();
-      break;
-    case 'votaciones':
-      await renderVotacionesModule();
-      break;
-    case 'quorum':
-      await renderQuorumModule();
-      break;
-    case 'asistencia-qr':
-      await renderAsistenciaQrModule();
-      break;
-    case 'proyectos':
-      renderProyectosModule();
-      break;
-    default:
-      moduleContent.innerHTML = '<p>Contenido no disponible.</p>';
-  }
-}
-
-async function renderModuleView(view) {
-  const module = moduleDefinitions[view];
-  if (!module) {
-    moduleTitle.textContent = 'Módulo no disponible';
-    moduleDescription.textContent = 'Selecciona un módulo válido en la barra lateral.';
-    moduleObjective.textContent = '';
-    moduleStatus.textContent = '';
-    moduleActionPrimary.textContent = 'Volver';
-    moduleActionSecondary.textContent = 'Cerrar';
-    moduleContent.innerHTML = '';
+function pintarPerfil(usuario) {
+  if (!usuario) {
     return;
   }
-
-  activeModule = view;
-  moduleTitle.textContent = module.title;
-  moduleDescription.textContent = module.description;
-  moduleObjective.textContent = module.objective;
-  moduleStatus.textContent = module.status;
-  moduleActionPrimary.textContent = module.primaryAction;
-  moduleActionSecondary.textContent = module.secondaryAction;
-  await renderModuleContent(view);
-}
-
-async function setActiveView(view) {
-  const isHistory = view === 'history';
-  const isSession = view === 'session';
-  const isModule = Boolean(moduleDefinitions[view]);
-
-  sessionView.classList.toggle('hidden', !isSession);
-  historyView.classList.toggle('hidden', !isHistory);
-  moduleView.classList.toggle('hidden', !isModule);
-
-  navLinks.forEach(link => link.classList.toggle('active', link.dataset.view === view));
-
-  if (isSession) {
-    loadSession();
-  } else if (isHistory) {
-    loadHistory();
-  } else if (isModule) {
-    await renderModuleView(view);
+  texto('profileName', usuario.name);
+  texto('profileRole', usuario.role);
+  const avatar = el('profileAvatar');
+  if (avatar) {
+    avatar.textContent = usuario.name
+      .split(' ')
+      .map(parte => parte[0])
+      .join('')
+      .slice(0, 2)
+      .toUpperCase();
   }
 }
 
-loginBtn.addEventListener('click', async () => {
-  loginMessage.textContent = '';
-  const username = usernameInput.value.trim();
-  const password = passwordInput.value;
-
-  if (!username || !password) {
-    loginMessage.textContent = 'Completa usuario y contraseña.';
-    return;
+async function cerrarSesion() {
+  try {
+    await api('/api/auth/logout', { method: 'POST' });
+  } catch (error) {
+    console.error(error);
   }
+  borrarSesion();
+  window.location.href = '/login';
+}
 
-  const result = await login(username, password);
-  if (result.error) {
-    loginMessage.textContent = result.error;
-    return;
-  }
-
-  authToken = result.token;
-  currentUser = result.user;
-  profileAvatar.textContent = currentUser.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-  profileName.textContent = currentUser.name;
-  profileRole.textContent = currentUser.role;
-  messageEl.textContent = '';
-  showApp();
-  setActiveView('session');
-});
-
-voteButtons.forEach(button => {
-  button.addEventListener('click', async () => {
-    const option = button.dataset.option;
-    await sendVote(option);
-    await loadSession();
-  });
-});
-
-navLinks.forEach(link => {
-  link.addEventListener('click', async event => {
-    event.preventDefault();
-    const view = link.dataset.view;
-    if (!view) {
-      return;
+async function cargarDashboard() {
+  const message = el('message');
+  let session;
+  try {
+    session = await api('/api/session');
+  } catch (error) {
+    texto('projectTitle', 'No hay un proyecto en votación');
+    if (message) {
+      message.textContent = error.message;
     }
-    await setActiveView(view);
-  });
-});
-
-moduleActionPrimary.addEventListener('click', async () => {
-  if (!activeModule) return;
-  await setActiveView(activeModule);
-});
-
-moduleActionSecondary.addEventListener('click', () => {
-  if (!activeModule) return;
-  const action = moduleDefinitions[activeModule]?.secondaryAction || 'Acción secundaria';
-  alert(`${action} no está disponible aún.`);
-});
-
-async function loadSession() {
-  const sessionData = await fetchSession();
-  renderSession(sessionData);
-  if (currentUser && currentUser.voted) {
-    disableVoteButtons();
-    messageEl.textContent = 'Ya emitiste tu voto.';
-    messageEl.style.color = '#6f7a92';
-  } else {
-    enableVoteButtons();
-    messageEl.textContent = 'Selecciona una opción para votar.';
-    messageEl.style.color = '#13203b';
+    return;
   }
-  const projects = await fetchProjects();
-  renderProjectList(projects);
+
+  texto('projectTag', session.project);
+  texto('projectTitle', session.title);
+  texto('projectDescription', session.description);
+  texto('projectStartedBy', session.startedBy);
+  texto('projectType', session.type);
+  texto('projectStartedAt', session.startedAt);
+  texto('mobileProjectTag', session.project);
+  texto('mobileProjectTitle', session.title);
+  texto('affirmativeCount', session.counts.afirmativo);
+  texto('negativeCount', session.counts.negativo);
+  texto('abstentionCount', session.counts.abstencion);
+  texto('pendingCount', session.counts.pendientes);
+  texto('connectedCount', `${session.connectedCouncillors} / ${session.totalCouncillors}`);
+  texto('statusText', session.status === 'abierta' ? 'Votación abierta' : 'Votación cerrada');
+
+  const bar = el('connectedBar');
+  if (bar) {
+    bar.style.width = `${Math.round((session.connectedCouncillors / session.totalCouncillors) * 100)}%`;
+  }
+
+  const usuario = leerSesion();
+  if (message && usuario) {
+    if (usuario.voted) {
+      message.style.color = '#6f7a92';
+      message.textContent = `Ya emitiste tu voto: ${String(usuario.vote).toUpperCase()}`;
+    } else if (session.status === 'abierta') {
+      message.style.color = '#13203b';
+      message.textContent = 'Selecciona una opción para votar.';
+    } else {
+      message.style.color = '#d93e4a';
+      message.textContent = 'La votación de este proyecto está cerrada.';
+    }
+  }
+
+  await cargarProyectosDashboard();
 }
 
-async function loadHistory() {
-  const historyData = await fetchHistory();
-  renderHistory(historyData);
+async function cargarProyectosDashboard() {
+  const lista = vaciar('projectList');
+  if (!lista) {
+    return;
+  }
+  const projects = await api('/api/projects');
+  projects.forEach(project => {
+    const item = document.createElement('article');
+    item.className = 'project-item';
+
+    const titulo = document.createElement('h4');
+    titulo.textContent = `${project.project} — ${project.title}`;
+    const meta = document.createElement('p');
+    meta.textContent = `${project.type} • Afirmativo ${project.counts.afirmativo} • Negativo ${project.counts.negativo} • Abstención ${project.counts.abstencion} • Pendientes ${project.counts.pendientes}`;
+    item.append(titulo, meta);
+
+    const acciones = document.createElement('div');
+    acciones.className = 'project-item-actions';
+    acciones.appendChild(project.status === 'abierta' ? etiqueta('En votación', 'verde') : etiqueta('Finalizado', 'gris'));
+    acciones.appendChild(boton('Activar', async () => {
+      try {
+        await api(`/api/project/${project.id}/activate`, { method: 'POST' });
+        await cargarDashboard();
+      } catch (error) {
+        console.error(error);
+      }
+    }));
+    item.appendChild(acciones);
+    lista.appendChild(item);
+  });
 }
 
-function showLogin() {
-  loginShell.classList.remove('hidden');
-  appShell.classList.add('hidden');
+async function votar(option) {
+  const message = el('message');
+  try {
+    await api('/api/vote', { method: 'POST', body: { option } });
+    const usuario = leerSesion();
+    if (usuario) {
+      guardarSesion(tokenActual(), { ...usuario, voted: true, vote: option });
+    }
+    if (message) {
+      message.style.color = '#2fa84f';
+      message.textContent = `Voto registrado: ${option.toUpperCase()}`;
+    }
+  } catch (error) {
+    if (message) {
+      message.style.color = '#d93e4a';
+      message.textContent = error.message;
+    }
+  }
+  await cargarDashboard();
 }
 
-function showApp() {
-  loginShell.classList.add('hidden');
-  appShell.classList.remove('hidden');
+function conectarVotos() {
+  document.querySelectorAll('.vote-btn, .mobile-btn').forEach(button => {
+    button.addEventListener('click', () => votar(button.dataset.option));
+  });
 }
 
-window.addEventListener('DOMContentLoaded', () => {
-  showLogin();
-});
+async function cargarUsuarios() {
+  const usuarios = await api('/api/usuarios');
+  texto('usuariosTotal', usuarios.length);
+  texto('usuariosActivos', usuarios.filter(u => u.conectado).length);
+  texto('usuariosVotos', usuarios.reduce((sum, u) => sum + u.votosEmitidos, 0));
+  cuerpo('tbodyUsuarios', usuarios.map(u => fila([
+    u.id,
+    u.name,
+    u.role,
+    u.username,
+    u.email,
+    u.bloque,
+    etiqueta(u.estado, u.conectado ? 'verde' : 'gris'),
+    u.votosEmitidos
+  ])), 8);
+}
+
+async function cargarConcejales() {
+  const concejales = await api('/api/councillors');
+  const presentes = concejales.filter(c => c.connected).length;
+  texto('concejalesTotal', concejales.length);
+  texto('concejalesPresentes', presentes);
+  texto('concejalesAusentes', concejales.length - presentes);
+  cuerpo('tbodyConcejales', concejales.map(c => fila([
+    c.id,
+    c.name,
+    c.bloque,
+    c.role,
+    etiqueta(c.connected ? 'Presente' : 'Ausente', c.connected ? 'verde' : 'rojo'),
+    c.vote ? etiqueta(String(c.vote).toUpperCase(), 'azul') : 'Pendiente'
+  ])), 6);
+}
+
+async function cargarBloques() {
+  const bloques = await api('/api/bloques');
+  texto('bloquesTotal', bloques.length);
+  texto('bloquesIntegrantes', bloques.reduce((sum, b) => sum + b.miembros, 0));
+  texto('bloquesPresentes', bloques.reduce((sum, b) => sum + b.presentes, 0));
+  cuerpo('tbodyBloques', bloques.map(b => fila([
+    b.id,
+    b.nombre,
+    b.sigla,
+    b.miembros,
+    `${b.presentes} / ${b.miembros}`,
+    b.fundado
+  ])), 6);
+
+  const detalle = vaciar('detalleBloques');
+  if (!detalle) {
+    return;
+  }
+  bloques.forEach(bloque => {
+    const grupo = document.createElement('div');
+    grupo.className = 'chip-group';
+    const titulo = document.createElement('h4');
+    titulo.textContent = bloque.nombre;
+    grupo.appendChild(titulo);
+    bloque.concejales.forEach(concejal => {
+      grupo.appendChild(etiqueta(
+        `${concejal.name}${concejal.connected ? '' : ' (ausente)'}`,
+        concejal.connected ? 'verde' : 'gris'
+      ));
+    });
+    detalle.appendChild(grupo);
+  });
+}
+
+async function cargarMunicipios() {
+  const datos = await api('/api/municipios');
+  const municipios = datos.municipios;
+  const mayor = municipios.reduce((mejor, m) => (!mejor || m.habitantes > mejor.habitantes ? m : mejor), null);
+  texto('municipiosTotal', municipios.length);
+  texto('municipiosHabitantes', fmtNumero(datos.totalHabitantes));
+  texto('municipiosMayor', mayor ? mayor.nombre : '—');
+  cuerpo('tbodyMunicipios', municipios.map(m => fila([
+    m.id,
+    m.nombre,
+    m.departamento,
+    m.distrito,
+    fmtNumero(m.habitantes),
+    datos.totalHabitantes ? `${((m.habitantes / datos.totalHabitantes) * 100).toFixed(1)}%` : '—'
+  ])), 6);
+}
+
+async function cargarSesiones() {
+  const sesiones = await api('/api/sessions');
+  const activa = sesiones.find(s => s.active) || sesiones[0];
+  texto('sesionesTotal', sesiones.length);
+  texto('sesionActiva', activa ? activa.name : '—');
+  texto('sesionQuorum', activa ? activa.quorumRequired : 0);
+  cuerpo('tbodySesiones', sesiones.map(s => fila([
+    s.id,
+    s.name,
+    s.date,
+    etiqueta(s.status === 'abierta' ? 'Abierta' : 'Cerrada', s.status === 'abierta' ? 'verde' : 'gris'),
+    s.quorumRequired,
+    s.projectCount,
+    s.active
+      ? etiqueta('En curso', 'azul')
+      : boton('Activar', async () => {
+        try {
+          await api(`/api/sessions/${s.id}/activate`, { method: 'POST' });
+          await cargarSesiones();
+        } catch (error) {
+          console.error(error);
+        }
+      })
+  ])), 7);
+}
+
+async function cargarAsistenciaQr() {
+  const qr = await api('/api/asistencia/qr');
+  const marcas = await api('/api/asistencia');
+  texto('qrRegistrados', qr.registrados);
+  texto('qrTotal', qr.total);
+  texto('qrPendiente', Math.max(qr.total - qr.registrados, 0));
+  texto('qrSesion', `${qr.sesion.name} • ${qr.sesion.date}`);
+  texto('qrCodigo', qr.codigo);
+
+  const link = el('qrLink');
+  if (link) {
+    link.href = qr.url;
+  }
+
+  const copiar = el('qrCopiar');
+  if (copiar && !copiar.dataset.listo) {
+    copiar.dataset.listo = '1';
+    copiar.addEventListener('click', async () => {
+      const url = `${window.location.origin}${qr.url}`;
+      const mensaje = el('qrMensaje');
+      try {
+        await navigator.clipboard.writeText(url);
+        if (mensaje) {
+          mensaje.textContent = 'Link copiado al portapapeles.';
+        }
+      } catch (error) {
+        if (mensaje) {
+          mensaje.textContent = `Copiá manualmente: ${url}`;
+        }
+      }
+    });
+  }
+
+  cuerpo('tbodyAsistencias', marcas.map(a => fila([
+    a.creadoEn,
+    a.name || `Concejal ${a.concejalId}`,
+    a.role,
+    (a.metodo || 'qr').toUpperCase(),
+    a.codigo
+  ])), 5);
+}
+
+async function cargarQuorum() {
+  const [quorum, asistencia] = await Promise.all([api('/api/quorum'), api('/api/attendance')]);
+  texto('quorumPresentes', quorum.present);
+  texto('quorumAusentes', quorum.absent);
+  texto('quorumRequerido', quorum.quorumRequired);
+  texto('quorumEstado', quorum.quorumReached ? 'Alcanzado' : 'No alcanzado');
+  const status = el('statusText');
+  if (status) {
+    status.textContent = quorum.quorumReached ? 'Quórum válido' : 'Sin quórum';
+  }
+  cuerpo('tbodyQuorum', asistencia.map(a => fila([
+    a.id,
+    a.name,
+    a.role,
+    etiqueta(a.connected ? 'Presente' : 'Ausente', a.connected ? 'verde' : 'rojo'),
+    a.vote || 'Pendiente'
+  ])), 5);
+}
+
+async function cargarOrden() {
+  const [orden, proyectos] = await Promise.all([api('/api/order-of-day'), api('/api/projects')]);
+  cuerpo('tbodyOrden', orden.map(item => {
+    const proyecto = proyectos.find(p => p.project === item.title);
+    return fila([
+      item.id,
+      item.title,
+      item.presenter,
+      etiqueta(item.status, proyecto && proyecto.status === 'abierta' ? 'verde' : 'gris'),
+      proyecto
+        ? boton('Activar votación', async () => {
+          try {
+            await api(`/api/project/${proyecto.id}/activate`, { method: 'POST' });
+            await cargarOrden();
+          } catch (error) {
+            console.error(error);
+          }
+        })
+        : etiqueta('Sin expediente', 'gris')
+    ]);
+  }), 5);
+}
+
+async function cargarProyectos() {
+  const proyectos = await api('/api/projects');
+  texto('proyectosTotal', proyectos.length);
+  texto('proyectosAbiertos', proyectos.filter(p => p.status === 'abierta').length);
+  texto('proyectosCerrados', proyectos.filter(p => p.status !== 'abierta').length);
+  cuerpo('tbodyProyectos', proyectos.map(p => fila([
+    p.id,
+    p.project,
+    p.title,
+    p.type,
+    etiqueta(p.status === 'abierta' ? 'En votación' : 'Finalizado', p.status === 'abierta' ? 'verde' : 'gris'),
+    p.counts.afirmativo,
+    p.counts.negativo,
+    p.counts.abstencion,
+    boton('Activar', async () => {
+      try {
+        await api(`/api/project/${p.id}/activate`, { method: 'POST' });
+        await cargarProyectos();
+      } catch (error) {
+        console.error(error);
+      }
+    })
+  ])), 9);
+}
+
+function seccionVotacion(contenedor, votacion) {
+  const card = document.createElement('article');
+  card.className = 'vote-detail';
+
+  const cabecera = document.createElement('header');
+  const titulo = document.createElement('h3');
+  titulo.textContent = `${votacion.project} — ${votacion.title}`;
+  const estado = etiqueta(
+    votacion.status === 'abierta' ? 'En votación' : 'Finalizado',
+    votacion.status === 'abierta' ? 'verde' : 'gris'
+  );
+  cabecera.append(titulo, estado);
+  card.appendChild(cabecera);
+
+  const resumen = document.createElement('div');
+  resumen.className = 'vote-detail-counts';
+  [['Afirmativo', votacion.counts.afirmativo], ['Negativo', votacion.counts.negativo], ['Abstención', votacion.counts.abstencion], ['Pendientes', votacion.counts.pendientes]]
+    .forEach(([nombre, valor]) => {
+      const item = document.createElement('div');
+      item.className = 'kpi';
+      const strong = document.createElement('strong');
+      strong.textContent = String(valor);
+      const span = document.createElement('span');
+      span.textContent = nombre;
+      item.append(strong, span);
+      resumen.appendChild(item);
+    });
+  card.appendChild(resumen);
+
+  const listas = document.createElement('div');
+  listas.className = 'vote-detail-lists';
+  [['Afirmativo', votacion.detalle.afirmativo], ['Negativo', votacion.detalle.negativo], ['Abstención', votacion.detalle.abstencion], ['Pendientes', votacion.detalle.pendientes]]
+    .forEach(([nombre, personas]) => {
+      const bloque = document.createElement('div');
+      const sub = document.createElement('h4');
+      sub.textContent = `${nombre} (${personas.length})`;
+      bloque.appendChild(sub);
+      if (personas.length === 0) {
+        const vacio = document.createElement('p');
+        vacio.className = 'muted';
+        vacio.textContent = 'Sin registros.';
+        bloque.appendChild(vacio);
+      }
+      personas.forEach(persona => bloque.appendChild(etiqueta(persona.name, 'gris')));
+      listas.appendChild(bloque);
+    });
+  card.appendChild(listas);
+  contenedor.appendChild(card);
+}
+
+async function cargarVotaciones() {
+  const votaciones = await api('/api/votaciones');
+  const contenedor = vaciar('votacionesList');
+  if (!contenedor) {
+    return;
+  }
+  votaciones.forEach(votacion => seccionVotacion(contenedor, votacion));
+}
+
+function resultadoDe(votacion) {
+  if (votacion.counts.afirmativo > votacion.counts.negativo) {
+    return 'Aprobado';
+  }
+  if (votacion.counts.negativo > votacion.counts.afirmativo) {
+    return 'Rechazado';
+  }
+  return 'Empate';
+}
+
+async function cargarReportes() {
+  const [reporte, historial] = await Promise.all([api('/api/reports'), api('/api/history')]);
+  kpis('reportesKpis', [
+    [reporte.totalProjects, 'Proyectos totales'],
+    [reporte.approvedCount, 'Aprobados'],
+    [reporte.rejectedCount, 'Rechazados'],
+    [`${reporte.connectedCouncillors} / ${reporte.totalCouncillors}`, 'Concejales conectados']
+  ]);
+
+  cuerpo('tbodyReportes', historial.map(p => fila([
+    p.project,
+    p.title,
+    p.type,
+    etiqueta(resultadoDe(p), resultadoDe(p) === 'Aprobado' ? 'verde' : 'rojo'),
+    p.counts.afirmativo,
+    p.counts.negativo,
+    p.counts.abstencion,
+    p.startedAtFull
+  ])), 8);
+
+  const csvBtn = el('csvBtn');
+  if (csvBtn && !csvBtn.dataset.listo) {
+    csvBtn.dataset.listo = '1';
+    csvBtn.addEventListener('click', () => {
+      const cabecera = 'Expediente,Titulo,Tipo,Resultado,Afirmativo,Negativo,Abstencion,Fecha';
+      const lineas = historial.map(p => [
+        p.project,
+        p.title.replace(/,/g, ';'),
+        p.type,
+        resultadoDe(p),
+        p.counts.afirmativo,
+        p.counts.negativo,
+        p.counts.abstencion,
+        p.startedAtFull
+      ].join(','));
+      const blob = new Blob([[cabecera, ...lineas].join('\n')], { type: 'text/csv;charset=utf-8' });
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(blob);
+      link.download = 'reporte-votaciones.csv';
+      link.click();
+      URL.revokeObjectURL(link.href);
+    });
+  }
+
+  const imprimir = el('imprimirBtn');
+  if (imprimir && !imprimir.dataset.listo) {
+    imprimir.dataset.listo = '1';
+    imprimir.addEventListener('click', () => window.print());
+  }
+}
+
+async function cargarEstadisticas() {
+  const [stats, proyectos] = await Promise.all([api('/api/stats'), api('/api/projects')]);
+  kpis('statsKpis', [
+    [stats.totalVotes, 'Votos emitidos'],
+    [`${stats.participationRate}%`, 'Participación'],
+    [`${stats.connected} / ${stats.totalCouncillors}`, 'Concejales conectados'],
+    [stats.activeProjects, 'Votaciones abiertas']
+  ]);
+
+  const barras = vaciar('statsBarras');
+  if (barras) {
+    barras.innerHTML = '';
+    barra(barras, 'Afirmativos', stats.affirmatives, stats.totalVotes, 'verde');
+    barra(barras, 'Negativos', stats.negatives, stats.totalVotes, 'rojo');
+    barra(barras, 'Abstenciones', stats.abstentions, stats.totalVotes, 'gris');
+  }
+
+  const porProyecto = vaciar('statsProyectos');
+  if (porProyecto) {
+    porProyecto.innerHTML = '';
+    proyectos.forEach(proyecto => {
+      const emitidos = proyecto.counts.afirmativo + proyecto.counts.negativo + proyecto.counts.abstencion;
+      barra(porProyecto, proyecto.project, emitidos, proyecto.totalCouncillors, 'azul');
+    });
+  }
+}
+
+async function cargarAuditoria() {
+  const eventos = await api('/api/auditoria?limit=150');
+  texto('auditoriaTotal', eventos.length);
+  texto('auditoriaUsuarios', new Set(eventos.map(e => e.usuario)).size);
+  texto('auditoriaUltimo', eventos.length ? eventos[0].timestamp : '—');
+  cuerpo('tbodyAuditoria', eventos.map(e => fila([
+    e.timestamp,
+    e.usuario,
+    e.accion,
+    e.detalle
+  ])), 4);
+}
+
+async function cargarConfiguracion() {
+  const [datos, municipios] = await Promise.all([api('/api/configuracion'), api('/api/municipios')]);
+  const config = datos.config;
+
+  const selectMunicipio = el('cfgMunicipioSede');
+  if (selectMunicipio) {
+    selectMunicipio.innerHTML = '';
+    municipios.municipios.forEach(municipio => {
+      const option = document.createElement('option');
+      option.value = municipio.nombre;
+      option.textContent = municipio.nombre;
+      if (config.municipio_sede === municipio.nombre) {
+        option.selected = true;
+      }
+      selectMunicipio.appendChild(option);
+    });
+  }
+
+  texto('cfgQuorum', datos.quorumSesion === null ? 'Sin sesión activa' : `${datos.quorumSesion} concejales`);
+  if (el('cfgMayoria')) {
+    el('cfgMayoria').value = config.mayoria || 'Simple';
+  }
+  if (el('cfgDuracion')) {
+    el('cfgDuracion').value = config.duracion_votacion || 5;
+  }
+  if (el('cfgPantalla')) {
+    el('cfgPantalla').checked = config.pantalla_publica === '1';
+  }
+  if (el('cfgNotificaciones')) {
+    el('cfgNotificaciones').checked = config.notificaciones === '1';
+  }
+
+  const form = el('formConfig');
+  if (form && !form.dataset.listo) {
+    form.dataset.listo = '1';
+    form.addEventListener('submit', async event => {
+      event.preventDefault();
+      const mensaje = el('configMensaje');
+      try {
+        await api('/api/configuracion', {
+          method: 'PUT',
+          body: {
+            municipio_sede: selectMunicipio ? selectMunicipio.value : '',
+            mayoria: el('cfgMayoria').value,
+            duracion_votacion: el('cfgDuracion').value,
+            pantalla_publica: el('cfgPantalla').checked ? '1' : '0',
+            notificaciones: el('cfgNotificaciones').checked ? '1' : '0'
+          }
+        });
+        if (mensaje) {
+          mensaje.style.color = '#2fa84f';
+          mensaje.textContent = 'Configuración guardada.';
+        }
+      } catch (error) {
+        if (mensaje) {
+          mensaje.style.color = '#d93e4a';
+          mensaje.textContent = error.message;
+        }
+      }
+    });
+  }
+
+  const recargar = el('configRecargar');
+  if (recargar && !recargar.dataset.listo) {
+    recargar.dataset.listo = '1';
+    recargar.addEventListener('click', cargarConfiguracion);
+  }
+}
+
+const CARGADORES = {
+  dashboard: cargarDashboard,
+  usuarios: cargarUsuarios,
+  concejales: cargarConcejales,
+  bloques: cargarBloques,
+  municipios: cargarMunicipios,
+  sesiones: cargarSesiones,
+  'asistencia-qr': cargarAsistenciaQr,
+  quorum: cargarQuorum,
+  'orden-del-dia': cargarOrden,
+  proyectos: cargarProyectos,
+  votaciones: cargarVotaciones,
+  reportes: cargarReportes,
+  estadisticas: cargarEstadisticas,
+  auditoria: cargarAuditoria,
+  configuracion: cargarConfiguracion
+};
+
+async function cargarPagina() {
+  const cargador = CARGADORES[pagina];
+  if (!cargador) {
+    return;
+  }
+  try {
+    await cargador();
+  } catch (error) {
+    console.error(`No se pudo cargar ${pagina}:`, error);
+  }
+}
+
+async function iniciar() {
+  const logout = el('logoutBtn');
+  if (logout) {
+    logout.addEventListener('click', cerrarSesion);
+  }
+
+  let usuario;
+  try {
+    const datos = await api('/api/auth/me');
+    usuario = datos.user;
+    if (tokenActual()) {
+      guardarSesion(tokenActual(), usuario);
+    }
+  } catch (error) {
+    return;
+  }
+
+  pintarPerfil(usuario);
+  await cargarCabecera();
+  if (pagina === 'dashboard') {
+    conectarVotos();
+  }
+  await cargarPagina();
+  setInterval(cargarPagina, 5000);
+}
+
+iniciar();

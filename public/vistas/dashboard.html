@@ -1,0 +1,81 @@
+<section class="content-grid">
+  <article class="project-card">
+    <div class="project-tag" id="projectTag">Proyecto</div>
+    <h2 id="projectTitle">Cargando proyecto en votación…</h2>
+    <p id="projectDescription"></p>
+    <div class="project-meta">
+      <div>
+        <span>Iniciado por</span>
+        <strong id="projectStartedBy">—</strong>
+      </div>
+      <div>
+        <span>Tipo</span>
+        <strong id="projectType">—</strong>
+      </div>
+    </div>
+    <div class="project-meta">
+      <div>
+        <span>Iniciado a las</span>
+        <strong id="projectStartedAt">—</strong>
+      </div>
+    </div>
+  </article>
+
+  <aside class="summary-card">
+    <h3>Resumen en tiempo real</h3>
+    <div class="summary-grid">
+      <div class="summary-item affirmativo">
+        <span id="affirmativeCount">0</span>
+        <small>AFIRMATIVO</small>
+      </div>
+      <div class="summary-item negativo">
+        <span id="negativeCount">0</span>
+        <small>NEGATIVO</small>
+      </div>
+      <div class="summary-item abstencion">
+        <span id="abstentionCount">0</span>
+        <small>ABSTENCIÓN</small>
+      </div>
+      <div class="summary-item pendientes">
+        <span id="pendingCount">0</span>
+        <small>PENDIENTES</small>
+      </div>
+    </div>
+    <div class="progress-row">
+      <span>Concejales conectados</span>
+      <strong id="connectedCount">0 / 0</strong>
+    </div>
+    <div class="progress-bar"><div id="connectedBar" style="width:0%"></div></div>
+  </aside>
+</section>
+
+<section class="vote-panel">
+  <div class="vote-card">
+    <h3>¿Cómo desea votar?</h3>
+    <div class="vote-buttons">
+      <button class="vote-btn affirmativo" data-option="afirmativo">AFIRMATIVO</button>
+      <button class="vote-btn negativo" data-option="negativo">NEGATIVO</button>
+      <button class="vote-btn abstencion" data-option="abstencion">ABSTENCIÓN</button>
+    </div>
+    <div id="message" class="message"></div>
+  </div>
+
+  <div class="mobile-preview">
+    <h3>Vista móvil</h3>
+    <div class="mobile-card">
+      <div class="mobile-header" id="mobileProjectTag">Proyecto</div>
+      <div class="mobile-body">
+        <h4 id="mobileProjectTitle">—</h4>
+        <p>¿Cómo desea votar?</p>
+        <button class="mobile-btn affirmativo" data-option="afirmativo">AFIRMATIVO</button>
+        <button class="mobile-btn negativo" data-option="negativo">NEGATIVO</button>
+        <button class="mobile-btn abstencion" data-option="abstencion">ABSTENCIÓN</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="project-list-card">
+  <h3>Proyectos de la sesión</h3>
+  <div id="projectList" class="project-list"></div>
+</section>

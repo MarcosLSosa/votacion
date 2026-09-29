@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Asistencia • Concejo Deliberante</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="login-body">
+  <div class="login-shell">
+    <form class="login-card" id="asistenciaForm" novalidate>
+      <h2>Marca tu asistencia</h2>
+      <p id="asistenciaSesion">Sesión del cuerpo legislativo.</p>
+      <label>
+        Usuario
+        <input type="text" id="username" autocomplete="username" />
+      </label>
+      <div class="login-help">Código de la sesión: <strong id="codigoLabel">—</strong></div>
+      <button id="asistenciaBtn" type="submit">Marcar presencia</button>
+      <div id="asistenciaMensaje" class="message"></div>
+    </form>
+  </div>
+  <script src="/asistencia.js"></script>
+</body>
+</html>

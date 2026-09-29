@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{TITULO}}</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="pagina" data-page="{{PAGE}}">
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-icon">🏛️</div>
+        <div>
+          <strong>CONCEJO</strong>
+          <span>DELIBERANTE</span>
+        </div>
+      </div>
+      <nav>
+        {{NAV}}
+        <a class="external-link" href="/screen" target="_blank">Pantalla pública</a>
+      </nav>
+      <div class="profile-card">
+        <div class="profile-avatar" id="profileAvatar">--</div>
+        <div class="profile-info">
+          <strong id="profileName">Cargando…</strong>
+          <span id="profileRole"></span>
+        </div>
+        <button type="button" id="logoutBtn" class="logout-btn" title="Cerrar sesión">Salir</button>
+      </div>
+    </aside>
+
+    <main class="main-content">
+      <header class="top-bar">
+        <div>
+          <p class="session-label" id="sessionType">Sesión</p>
+          <h1>{{CABECERA}}</h1>
+          <p class="page-description">{{DESCRIPCION}}</p>
+        </div>
+        <div class="status-pill">
+          <span class="status-dot"></span>
+          <span id="statusText">Conectado</span>
+        </div>
+      </header>
+
+      <section id="contenido">
+{{CONTENIDO}}
+      </section>
+    </main>
+  </div>
+  <script src="/app.js"></script>
+</body>
+</html>

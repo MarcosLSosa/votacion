@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Ingreso de concejales • Concejo Deliberante</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="login-body">
+  <div class="login-shell">
+    <form class="login-card" id="loginForm" novalidate>
+      <h2>Ingreso de concejales</h2>
+      <p>Accede con tu usuario para votar en la sesión.</p>
+      <label>
+        Usuario
+        <input type="text" id="username" autocomplete="username" />
+      </label>
+      <label>
+        Contraseña
+        <input type="password" id="password" autocomplete="current-password" />
+      </label>
+      <button id="loginBtn" type="submit">Ingresar</button>
+      <div class="login-help">Usuarios: sofia, juan, maria, carlos, ana, pedro, lucia, diego, marta, raul, patricia, leo. Contraseña: 1234</div>
+      <div id="loginMessage" class="message"></div>
+    </form>
+  </div>
+  <script src="/login.js"></script>
+</body>
+</html>

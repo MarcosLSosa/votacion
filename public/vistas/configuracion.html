@@ -1,0 +1,41 @@
+<div class="table-card">
+  <div class="table-head">
+    <h3>Parámetros del sistema</h3>
+    <p class="muted">Se guardan en la tabla <code>configuracion</code> y afectan el funcionamiento del panel.</p>
+  </div>
+  <form id="formConfig" class="config-form">
+    <label>
+      Municipio sede
+      <select id="cfgMunicipioSede" name="municipio_sede"></select>
+    </label>
+    <label>
+      Mayoría exigida
+      <select id="cfgMayoria" name="mayoria">
+        <option value="Simple">Simple</option>
+        <option value="Absoluta">Absoluta</option>
+        <option value="Dos tercios">Dos tercios</option>
+      </select>
+    </label>
+    <label>
+      Duración de votación (minutos)
+      <input type="number" id="cfgDuracion" name="duracion_votacion" min="1" max="120" />
+    </label>
+    <label>
+      Quórum de la sesión activa
+      <input type="text" id="cfgQuorum" disabled />
+    </label>
+    <label class="check">
+      <input type="checkbox" id="cfgPantalla" name="pantalla_publica" />
+      Pantalla pública habilitada
+    </label>
+    <label class="check">
+      <input type="checkbox" id="cfgNotificaciones" name="notificaciones" />
+      Notificaciones de resultados
+    </label>
+    <div class="page-actions">
+      <button type="submit" class="btn">Guardar cambios</button>
+      <button type="button" class="btn secundario" id="configRecargar">Descartar</button>
+    </div>
+    <div id="configMensaje" class="message"></div>
+  </form>
+</div>

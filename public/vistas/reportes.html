@@ -1,0 +1,20 @@
+<div class="kpi-grid" id="reportesKpis"></div>
+
+<div class="table-card">
+  <div class="table-head">
+    <h3>Resultados finalizados</h3>
+    <p class="muted">Incluye únicamente proyectos cuyo estado no es “abierta”.</p>
+  </div>
+  <div class="page-actions">
+    <button type="button" class="btn" id="csvBtn">Descargar CSV</button>
+    <button type="button" class="btn secundario" id="imprimirBtn">Imprimir reporte</button>
+  </div>
+  <table class="data-table">
+    <thead>
+      <tr><th>Expediente</th><th>Título</th><th>Tipo</th><th>Resultado</th><th>Afirmativo</th><th>Negativo</th><th>Abstención</th><th>Fecha</th></tr>
+    </thead>
+    <tbody id="tbodyReportes">
+      <tr><td colspan="8" class="muted">Cargando…</td></tr>
+    </tbody>
+  </table>
+</div>
