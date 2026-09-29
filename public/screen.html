@@ -8,50 +8,78 @@
   <link rel="stylesheet" href="screen.css" />
 </head>
 <body class="screen-body">
+  <div class="aurora" aria-hidden="true"><i class="b1"></i><i class="b2"></i><i class="b3"></i></div>
+
   <div class="screen-shell">
-    <header class="screen-header">
-      <div>
-        <p class="session-label" id="screenSessionType">Sesión Ordinaria</p>
-        <h1 id="screenProjectTag">Proyecto Nº 125/2026</h1>
+    <header class="screen-top">
+      <div class="top-brand">
+        <div class="live"><span class="live-dot"></span>EN VIVO</div>
+        <p class="eyebrow">Concejo Deliberante · <span id="screenSessionType">Sesión</span> · <span id="screenSessionDate">—</span></p>
+        <h1 id="screenProjectTag">Cargando proyecto…</h1>
       </div>
-      <div class="screen-status" id="screenResult">APROBADO</div>
+      <div class="top-metrics">
+        <div class="metric verde" id="chipPresentes">
+          <strong id="screenPresent">0</strong>
+          <span>presentes de <em id="screenTotal">0</em></span>
+        </div>
+        <div class="metric" id="chipQuorum">
+          <strong id="screenQuorumState">—</strong>
+          <span>quórum de <em id="screenQuorumRequired">0</em></span>
+        </div>
+        <div class="metric reloj">
+          <strong id="screenClock">--:--:--</strong>
+          <span>hora del servidor <em id="screenServerAt">—</em></span>
+        </div>
+      </div>
     </header>
 
-    <section class="screen-summary">
-      <div>
-        <h2 id="screenTitle">Declaración de interés municipal la Feria del Libro 2026</h2>
-        <p id="screenDescription">Declarar de interés municipal la realización de la Feria del Libro 2026 a desarrollarse en nuestra ciudad.</p>
+    <div class="alerta" id="screenAlert" hidden></div>
+
+    <section class="screen-hero">
+      <div class="hero-main">
+        <div class="pills">
+          <span class="pill estado" id="screenStatus">Votación abierta</span>
+          <span class="pill" id="screenStartedAt">—</span>
+          <span class="pill tipo" id="screenType">—</span>
+        </div>
+        <h2 id="screenTitle">—</h2>
+        <p id="screenDescription">—</p>
+        <div class="result-banner" id="resultBanner">
+          <span class="result-flag" id="screenResult">—</span>
+          <span class="result-note" id="resultNote">—</span>
+        </div>
       </div>
-      <div class="screen-meta">
-        <span id="screenStatus">Votación abierta</span>
-        <span id="screenStartedAt">02 de julio de 2026 • 10:32 hs</span>
-      </div>
+      <aside class="hero-donut">
+        <div class="donut" id="voteDonut">
+          <div class="donut-hole">
+            <strong id="donutTotal">0</strong>
+            <span>votos emitidos</span>
+            <em id="donutPart">0% del cuerpo</em>
+          </div>
+        </div>
+        <ul class="leyenda" id="donutLegend"></ul>
+      </aside>
     </section>
 
-    <section class="screen-votes">
-      <div class="screen-card affirmativo">
-        <strong id="screenAffirmative">8</strong>
-        <span>AFIRMATIVO</span>
-      </div>
-      <div class="screen-card negativo">
-        <strong id="screenNegative">2</strong>
-        <span>NEGATIVO</span>
-      </div>
-      <div class="screen-card abstencion">
-        <strong id="screenAbstention">1</strong>
-        <span>ABSTENCIÓN</span>
-      </div>
-      <div class="screen-card pendientes">
-        <strong id="screenPending">1</strong>
-        <span>PENDIENTES</span>
-      </div>
-    </section>
+    <section class="screen-votes" id="voteCards"></section>
 
-    <section class="screen-councillors">
-      <h3>Concejales conectados</h3>
+    <section class="screen-presence">
+      <header class="presence-head">
+        <div class="presence-titulo">
+          <h3>Presencia en sesión</h3>
+          <div class="presence-bar"><i id="presenceFill"></i></div>
+          <span class="presence-detalle" id="presenceDetalle">—</span>
+        </div>
+        <div class="voton-global" id="presenceBig">
+          <span class="voton-punto"></span>
+          <strong id="presenceBigText">0 presentes</strong>
+          <em id="presenceBigSub">sesión sin actividad</em>
+        </div>
+      </header>
       <div class="councillor-grid" id="councillorList"></div>
     </section>
   </div>
+
   <script src="screen.js"></script>
 </body>
 </html>

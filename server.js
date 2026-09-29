@@ -11,9 +11,11 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 const dataDir = path.join(__dirname, 'data');
-const dbPath = path.join(dataDir, 'votacion.db');
-if (!fs.existsSync(dataDir)) {
-  fs.mkdirSync(dataDir, { recursive: true });
+// VOTACION_DB permite aislar la base (pruebas automatizadas, demos) sin tocar data/votacion.db
+const dbPath = process.env.VOTACION_DB ? path.resolve(process.env.VOTACION_DB) : path.join(dataDir, 'votacion.db');
+const dbDir = path.dirname(dbPath);
+if (!fs.existsSync(dbDir)) {
+  fs.mkdirSync(dbDir, { recursive: true });
 }
 
 const db = new Database(dbPath);
@@ -435,6 +437,28 @@ function setConfig(clave, valor) {
   ).run(clave, String(valor));
 }
 
+/*
+ * Registrar presencia en la sesión activa. El flag `connected` queda en true
+ * desde el primer login y no vuelve a bajar, así que la pantalla pública
+ * necesita una marca real (tabla asistencias) para decir quién está en sala.
+ */
+function registrarPresente(concejal, metodo, codigo) {
+  const session = getActiveSession();
+  if (!session || !concejal) {
+    return false;
+  }
+  const yaRegistrado = db.prepare('SELECT 1 FROM asistencias WHERE sesion_id = ? AND concejal_id = ?')
+    .get(session.id, concejal.id);
+  if (yaRegistrado) {
+    return false;
+  }
+  const ahora = new Date().toLocaleString('es-AR');
+  db.prepare('INSERT INTO asistencias (sesion_id, concejal_id, codigo, metodo, creado_en) VALUES (?, ?, ?, ?, ?)')
+    .run(session.id, concejal.id, codigo || null, metodo, ahora);
+  audit(concejal.username, 'Presencia registrada', `${concejal.name} quedó registrado como presente (${metodo})`);
+  return true;
+}
+
 function authMiddleware(req, res, next) {
   const token = tokenFrom(req);
   if (!token || !tokens.has(token)) {
@@ -670,6 +694,7 @@ app.post('/api/auth/login', (req, res) => {
 
   user.connected = true;
   updateCouncillor(user);
+  registrarPresente(user, 'panel');
 
   const token = createToken();
   tokens.set(token, user);
@@ -891,6 +916,109 @@ function getResult(project) {
   }
   return { label: 'EMPATE', color: 'orange' };
 }
+
+function iniciales(nombre) {
+  return String(nombre)
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map(parte => parte[0].toUpperCase())
+    .join('');
+}
+
+// Marcas de presencia de la sesión activa, agrupadas por concejal.
+function marcasDePresencia(sesionId) {
+  if (!sesionId) {
+    return new Map();
+  }
+  const rows = db.prepare(`
+    SELECT concejal_id AS concejalId, MAX(creado_en) AS hora, GROUP_CONCAT(DISTINCT metodo) AS metodos
+    FROM asistencias
+    WHERE sesion_id = ? AND concejal_id IS NOT NULL
+    GROUP BY concejal_id
+  `).all(sesionId);
+  return rows.reduce((acc, row) => acc.set(row.concejalId, row), new Map());
+}
+
+// Concejales con token vivo en memoria (verdadero "en línea").
+function concejalesEnLinea() {
+  const ids = new Set();
+  for (const usuario of tokens.values()) {
+    ids.add(usuario.id);
+  }
+  return ids;
+}
+
+/*
+ * Punto único de datos de la pantalla pública: evita que /screen haga
+ * 4 pedidos cada 3 segundos y agrega presencia fina (marca de asistencia
+ * + token vivo) que las APIs históricas no exponían juntas.
+ */
+app.get('/api/screen', (req, res) => {
+  const project = getActiveProject();
+  const session = getActiveSession();
+  const councillors = getAllCouncillors();
+  const marcas = marcasDePresencia(session ? session.id : null);
+  const enLinea = concejalesEnLinea();
+  const bloques = new Map(getBloques().map(b => [b.id, b]));
+
+  const total = councillors.length;
+  const presentes = councillors.filter(c => c.connected || marcas.has(c.id)).length;
+  const requerido = session ? session.quorumRequired : Math.ceil(total / 2);
+  const counts = project ? computeCounts(project) : { afirmativo: 0, negativo: 0, abstencion: 0, pendientes: total };
+  const emitidos = project ? counts.afirmativo + counts.negativo + counts.abstencion : 0;
+  const mayoria = project && counts.afirmativo > Math.floor((counts.afirmativo + counts.negativo) / 2);
+
+  res.json({
+    sesion: session
+      ? { id: session.id, nombre: session.name, fecha: session.date, estado: session.status, requerido: session.quorumRequired, proyectos: session.projectCount }
+      : null,
+    concejales: councillors.map(c => {
+      const marca = marcas.get(c.id);
+      return {
+        id: c.id,
+        name: c.name,
+        role: c.role,
+        iniciales: iniciales(c.name),
+        bloque: bloqueName(c.bloqueId),
+        bloqueSigla: bloques.get(c.bloqueId)?.sigla || '—',
+        bloqueColor: bloques.get(c.bloqueId)?.color || '#5b6b8c',
+        conectado: Boolean(c.connected),
+        enLinea: enLinea.has(c.id),
+        presente: Boolean(c.connected || marca),
+        marca: marca ? marca.hora : null,
+        metodo: marca ? marca.metodos : null,
+        voto: c.votes[project ? project.id : -1] || null
+      };
+    }),
+    presencia: {
+      total,
+      presentes,
+      ausentes: total - presentes,
+      enLinea: councillors.filter(c => enLinea.has(c.id)).length,
+      porcentaje: total ? Math.round((presentes / total) * 100) : 0,
+      quorumAlcanzado: presentes >= requerido
+    },
+    proyecto: project
+      ? {
+        project: project.project,
+        title: project.title,
+        description: project.description,
+        type: project.type,
+        status: project.status,
+        sessionType: project.sessionType,
+        startedAtFull: project.startedAtFull,
+        counts,
+        total: project.totalCouncillors || total,
+        emitidos,
+        participacion: total ? Math.round((emitidos / total) * 100) : 0,
+        mayoria,
+        resultado: getResult(project)
+      }
+      : null,
+    serverAt: new Date().toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+  });
+});
 
 const VISTAS = {
   dashboard: { titulo: 'Votación en curso', descripcion: 'Sesión en tiempo real, resumen y emisión de votos.' },
