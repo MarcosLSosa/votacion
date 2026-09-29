@@ -59,7 +59,52 @@ db.exec(`
     status TEXT,
     presenter TEXT
   );
+
+  CREATE TABLE IF NOT EXISTS bloques (
+    id INTEGER PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    sigla TEXT,
+    color TEXT,
+    fundado TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS municipios (
+    id INTEGER PRIMARY KEY,
+    nombre TEXT NOT NULL,
+    departamento TEXT,
+    habitantes INTEGER,
+    distrito TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS auditoria (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    usuario TEXT NOT NULL,
+    accion TEXT NOT NULL,
+    detalle TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS configuracion (
+    clave TEXT PRIMARY KEY,
+    valor TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS asistencias (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    sesion_id INTEGER,
+    concejal_id INTEGER,
+    codigo TEXT,
+    metodo TEXT,
+    creado_en TEXT
+  );
 `);
+
+const columnaBloque = db
+  .prepare("SELECT COUNT(*) AS count FROM pragma_table_info('councillors') WHERE name = 'bloque_id'")
+  .get().count;
+if (columnaBloque === 0) {
+  db.exec('ALTER TABLE councillors ADD COLUMN bloque_id INTEGER');
+}
 
 function rowToCouncillor(row) {
   return {
@@ -69,6 +114,7 @@ function rowToCouncillor(row) {
     username: row.username,
     password: row.password,
     connected: Boolean(row.connected),
+    bloqueId: row.bloque_id ?? null,
     votes: JSON.parse(row.votes || '{}')
   };
 }
@@ -193,6 +239,20 @@ function getSession(sessionId) {
   return row ? rowToSession(row) : null;
 }
 
+function rowToOrderItem(row) {
+  return {
+    id: row.id,
+    title: row.title,
+    status: row.status,
+    presenter: row.presenter
+  };
+}
+
+function getAllOrderOfDay() {
+  const rows = db.prepare('SELECT * FROM order_of_day ORDER BY id').all();
+  return rows.map(rowToOrderItem);
+}
+
 function createSession(data) {
   if (data.active) {
     db.prepare('UPDATE sessions SET active = 0').run();
@@ -280,30 +340,110 @@ function seedDatabase() {
     stmt.run(2, 'Ordenanza Nº 216/2026', 'Aprobado', 'Bloque Ciudadana');
     stmt.run(3, 'Ordenanza Nº 220/2026', 'Rechazado', 'Bloque Independiente');
   }
+
+  const bloqueCount = db.prepare('SELECT COUNT(*) AS count FROM bloques').get().count;
+  if (bloqueCount === 0) {
+    const stmt = db.prepare('INSERT INTO bloques (id, nombre, sigla, color, fundado) VALUES (?, ?, ?, ?, ?)');
+    stmt.run(1, 'Bloque Unión por la Ciudad', 'UxC', '#2fa84f', '2017');
+    stmt.run(2, 'Bloque Ciudadana', 'CID', '#f3a312', '2019');
+    stmt.run(3, 'Bloque Independiente', 'INDEP', '#4b7bec', '2021');
+  }
+
+  const municipioCount = db.prepare('SELECT COUNT(*) AS count FROM municipios').get().count;
+  if (municipioCount === 0) {
+    const stmt = db.prepare('INSERT INTO municipios (id, nombre, departamento, habitantes, distrito) VALUES (?, ?, ?, ?, ?)');
+    stmt.run(1, 'Ciudad Central', 'Norte', 48200, 'Urbano');
+    stmt.run(2, 'Villa del Río', 'Sur', 21750, 'Rural');
+    stmt.run(3, 'San Cayetano', 'Este', 9840, 'Rural');
+  }
+
+  const configCount = db.prepare('SELECT COUNT(*) AS count FROM configuracion').get().count;
+  if (configCount === 0) {
+    const stmt = db.prepare('INSERT INTO configuracion (clave, valor) VALUES (?, ?)');
+    stmt.run('municipio_sede', 'Ciudad Central');
+    stmt.run('mayoria', 'Simple');
+    stmt.run('duracion_votacion', '5');
+    stmt.run('pantalla_publica', '1');
+    stmt.run('notificaciones', '0');
+  }
+
+  const auditoriaCount = db.prepare('SELECT COUNT(*) AS count FROM auditoria').get().count;
+  if (auditoriaCount === 0) {
+    const stmt = db.prepare('INSERT INTO auditoria (timestamp, usuario, accion, detalle) VALUES (?, ?, ?, ?)');
+    stmt.run('02/07/2026 09:38', 'system', 'Sistema iniciado', 'Base de datos creada y datos iniciales cargados');
+    stmt.run('02/07/2026 10:05', 'sofia', 'Inicio de sesión', 'Presidenta ingresó al panel');
+    stmt.run('02/07/2026 10:32', 'juan', 'Votación iniciada', 'Proyecto Nº 125/2026 • Sesión Ordinaria');
+  }
+
+  db.prepare('UPDATE councillors SET bloque_id = 1 WHERE id IN (1, 3, 4, 5, 6)').run();
+  db.prepare('UPDATE councillors SET bloque_id = 2 WHERE id IN (2, 7, 8, 9)').run();
+  db.prepare('UPDATE councillors SET bloque_id = 3 WHERE id IN (10, 11, 12)').run();
 }
 
 seedDatabase();
 
 let activeProjectId = 1;
 const tokens = new Map();
+const SESSION_COOKIE = 'votacion_token';
 
 function createToken() {
   return crypto.randomBytes(16).toString('hex');
 }
 
+function readCookies(req) {
+  const header = req.headers.cookie;
+  if (!header) {
+    return {};
+  }
+  return header.split(';').reduce((acc, part) => {
+    const index = part.indexOf('=');
+    if (index === -1) {
+      return acc;
+    }
+    acc[part.slice(0, index).trim()] = decodeURIComponent(part.slice(index + 1).trim());
+    return acc;
+  }, {});
+}
+
+function tokenFrom(req) {
+  const header = req.headers['x-auth-token'];
+  if (header) {
+    return header;
+  }
+  return readCookies(req)[SESSION_COOKIE] || null;
+}
+
+function audit(usuario, accion, detalle) {
+  const ahora = new Date();
+  const two = value => String(value).padStart(2, '0');
+  const timestamp = `${two(ahora.getDate())}/${two(ahora.getMonth() + 1)}/${ahora.getFullYear()} ${two(ahora.getHours())}:${two(ahora.getMinutes())}`;
+  db.prepare('INSERT INTO auditoria (timestamp, usuario, accion, detalle) VALUES (?, ?, ?, ?)')
+    .run(timestamp, usuario || 'anonimo', accion, detalle || null);
+}
+
+function getConfig() {
+  const rows = db.prepare('SELECT clave, valor FROM configuracion ORDER BY clave').all();
+  return rows.reduce((acc, row) => {
+    acc[row.clave] = row.valor;
+    return acc;
+  }, {});
+}
+
+function setConfig(clave, valor) {
+  db.prepare(
+    'INSERT INTO configuracion (clave, valor) VALUES (?, ?) ON CONFLICT(clave) DO UPDATE SET valor = excluded.valor'
+  ).run(clave, String(valor));
+}
+
 function authMiddleware(req, res, next) {
-  const token = req.headers['x-auth-token'];
+  const token = tokenFrom(req);
   if (!token || !tokens.has(token)) {
     return res.status(401).json({ error: 'No autorizado.' });
   }
 
-  const user = tokens.get(token);
-  req.user = user;
+  req.user = tokens.get(token);
+  req.token = token;
   next();
-}
-
-function getProject(projectId) {
-  return projects.find(project => project.id === Number(projectId));
 }
 
 function getActiveProject() {
@@ -317,7 +457,10 @@ function computeCounts(project) {
 
 function getSessionOverview() {
   const activeProject = getActiveProject();
-  const connected = councillors.filter(c => c.connected).length;
+  if (!activeProject) {
+    return null;
+  }
+  const connected = getAllCouncillors().filter(c => c.connected).length;
   return {
     ...activeProject,
     counts: computeCounts(activeProject),
@@ -325,19 +468,28 @@ function getSessionOverview() {
   };
 }
 
+function getActiveSession() {
+  const sessions = getAllSessions();
+  return sessions.find(session => session.active) || sessions[0] || null;
+}
+
 app.get('/api/session', (req, res) => {
-  res.json(getSessionOverview());
+  const overview = getSessionOverview();
+  if (!overview) {
+    return res.status(404).json({ error: 'No hay un proyecto en votación.' });
+  }
+  res.json(overview);
 });
 
 app.get('/api/projects', (req, res) => {
-  res.json(projects.map(project => ({
+  res.json(getAllProjects().map(project => ({
     ...project,
     counts: computeCounts(project)
   })));
 });
 
 app.get('/api/history', (req, res) => {
-  res.json(projects
+  res.json(getAllProjects()
     .filter(project => project.status !== 'abierta')
     .map(project => ({
       ...project,
@@ -346,29 +498,31 @@ app.get('/api/history', (req, res) => {
 });
 
 app.get('/api/sessions', (req, res) => {
-  res.json(sessions);
+  res.json(getAllSessions());
 });
 
 app.get('/api/order-of-day', (req, res) => {
-  res.json(orderOfDay);
+  res.json(getAllOrderOfDay());
 });
 
 app.get('/api/quorum', (req, res) => {
+  const councillors = getAllCouncillors();
+  const activeSession = getActiveSession();
   const connected = councillors.filter(c => c.connected).length;
-  const activeSession = sessions.find(session => session.active) || sessions[0];
+  const quorumRequired = activeSession ? activeSession.quorumRequired : 0;
   res.json({
     activeSession,
     connected,
     totalCouncillors: councillors.length,
-    quorumRequired: activeSession.quorumRequired,
-    quorumReached: connected >= activeSession.quorumRequired,
+    quorumRequired,
+    quorumReached: connected >= quorumRequired,
     present: connected,
     absent: councillors.length - connected
   });
 });
 
 app.get('/api/attendance', (req, res) => {
-  const attendance = councillors.map(c => ({
+  const attendance = getAllCouncillors().map(c => ({
     id: c.id,
     name: c.name,
     role: c.role,
@@ -379,6 +533,8 @@ app.get('/api/attendance', (req, res) => {
 });
 
 app.get('/api/reports', (req, res) => {
+  const projects = getAllProjects();
+  const councillors = getAllCouncillors();
   const totalProjects = projects.length;
   const openProjects = projects.filter(p => p.status === 'abierta').length;
   const closedProjects = totalProjects - openProjects;
@@ -396,18 +552,24 @@ app.get('/api/reports', (req, res) => {
 });
 
 app.get('/api/stats', (req, res) => {
-  const activeSession = sessions.find(session => session.active) || sessions[0];
+  const projects = getAllProjects();
+  const councillors = getAllCouncillors();
+  const activeSession = getActiveSession();
   const affirmatives = projects.reduce((sum, project) => sum + project.counts.afirmativo, 0);
   const negatives = projects.reduce((sum, project) => sum + project.counts.negativo, 0);
   const abstentions = projects.reduce((sum, project) => sum + project.counts.abstencion, 0);
+  const connected = councillors.filter(c => c.connected).length;
   res.json({
-    activeSessionName: activeSession.name,
+    activeSessionName: activeSession ? activeSession.name : 'Sin sesión activa',
     activeProjects: projects.filter(project => project.status === 'abierta').length,
     totalVotes: affirmatives + negatives + abstentions,
     affirmatives,
     negatives,
     abstentions,
-    participationRate: Math.round((councillors.filter(c => c.connected).length / councillors.length) * 100)
+    totalProjects: projects.length,
+    connected,
+    totalCouncillors: councillors.length,
+    participationRate: councillors.length ? Math.round((connected / councillors.length) * 100) : 0
   });
 });
 
@@ -419,40 +581,120 @@ app.get('/api/project/:id', (req, res) => {
   res.json({ ...project, counts: computeCounts(project) });
 });
 
+function getBloques() {
+  const bloques = db.prepare('SELECT * FROM bloques ORDER BY id').all();
+  const councillors = getAllCouncillors();
+  return bloques.map(bloque => {
+    const miembros = councillors.filter(c => c.bloqueId === bloque.id);
+    return {
+      ...bloque,
+      miembros: miembros.length,
+      presentes: miembros.filter(c => c.connected).length,
+      concejales: miembros.map(c => ({ id: c.id, name: c.name, role: c.role, connected: c.connected }))
+    };
+  });
+}
+
+function bloqueName(id) {
+  if (!id) {
+    return 'Sin bloque';
+  }
+  const row = db.prepare('SELECT nombre FROM bloques WHERE id = ?').get(id);
+  return row ? row.nombre : 'Sin bloque';
+}
+
+app.get('/api/bloques', (req, res) => {
+  res.json(getBloques());
+});
+
+app.get('/api/municipios', (req, res) => {
+  const municipios = db.prepare('SELECT * FROM municipios ORDER BY id').all();
+  const total = municipios.reduce((sum, municipio) => sum + (municipio.habitantes || 0), 0);
+  res.json({ municipios, totalHabitantes: total });
+});
+
+app.get('/api/auditoria', authMiddleware, (req, res) => {
+  const desde = Number(req.query.limit) > 0 ? Number(req.query.limit) : 100;
+  res.json(db.prepare('SELECT * FROM auditoria ORDER BY id DESC LIMIT ?').all(desde));
+});
+
+app.get('/api/usuarios', (req, res) => {
+  const councillors = getAllCouncillors();
+  res.json(councillors.map(councillor => ({
+    id: councillor.id,
+    name: councillor.name,
+    role: councillor.role,
+    username: councillor.username,
+    email: `${councillor.username}@concejo.local`,
+    bloque: bloqueName(councillor.bloqueId),
+    conectado: councillor.connected,
+    estado: councillor.connected ? 'Activo' : 'Inactivo',
+    votosEmitidos: Object.keys(councillor.votes || {}).length
+  })));
+});
+
 app.get('/api/councillors', (req, res) => {
   const activeProject = getActiveProject();
-  res.json(councillors.map(({ id, name, role, connected, votes }) => ({
+  const activeId = activeProject ? activeProject.id : null;
+  res.json(getAllCouncillors().map(({ id, name, role, connected, votes, bloqueId }) => ({
     id,
     name,
     role,
     connected,
-    voted: Boolean(votes[activeProject.id]),
-    vote: votes[activeProject.id] || null
+    bloqueId,
+    bloque: bloqueName(bloqueId),
+    voted: Boolean(votes[activeId]),
+    vote: votes[activeId] || null
   })));
 });
 
+function publicUser(user) {
+  const activeProject = getActiveProject();
+  const activeId = activeProject ? activeProject.id : null;
+  return {
+    id: user.id,
+    name: user.name,
+    role: user.role,
+    voted: Boolean(user.votes[activeId]),
+    vote: user.votes[activeId] || null
+  };
+}
+
 app.post('/api/auth/login', (req, res) => {
   const { username, password } = req.body;
-  const user = councillors.find(c => c.username === username && c.password === password);
-  if (!user) {
+  const user = getCouncillorByUsername(username);
+  if (!user || user.password !== password) {
+    audit(username, 'Intento fallido', 'Credenciales inválidas');
     return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
   }
 
   user.connected = true;
+  updateCouncillor(user);
+
   const token = createToken();
   tokens.set(token, user);
+  audit(user.username, 'Inicio de sesión', `${user.name} ingresó al panel`);
 
-  const activeProject = getActiveProject();
-  res.json({
-    token,
-    user: {
-      id: user.id,
-      name: user.name,
-      role: user.role,
-      voted: Boolean(user.votes[activeProject.id]),
-      vote: user.votes[activeProject.id] || null
-    }
-  });
+  res.setHeader(
+    'Set-Cookie',
+    `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800`
+  );
+  res.json({ token, user: publicUser(user) });
+});
+
+app.post('/api/auth/logout', (req, res) => {
+  const token = tokenFrom(req);
+  if (token && tokens.has(token)) {
+    const usuario = tokens.get(token);
+    audit(usuario.username, 'Fin de sesión', `${usuario.name} cerró su sesión en el panel`);
+    tokens.delete(token);
+  }
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  res.json({ success: true });
+});
+
+app.get('/api/auth/me', authMiddleware, (req, res) => {
+  res.json({ user: publicUser(req.user) });
 });
 
 app.post('/api/vote', authMiddleware, (req, res) => {
@@ -461,6 +703,10 @@ app.post('/api/vote', authMiddleware, (req, res) => {
 
   if (!option || !['afirmativo', 'negativo', 'abstencion'].includes(option)) {
     return res.status(400).json({ error: 'Opción de voto inválida.' });
+  }
+
+  if (!activeProject) {
+    return res.status(404).json({ error: 'No hay un proyecto activo.' });
   }
 
   if (activeProject.status !== 'abierta') {
@@ -472,11 +718,18 @@ app.post('/api/vote', authMiddleware, (req, res) => {
     return res.status(409).json({ error: 'Ya emitiste tu voto en esta ordenanza.' });
   }
 
-  activeProject.counts[option] += 1;
-  user.votes[activeProject.id] = option;
-  user.connected = true;
+  const counts = {
+    ...activeProject.counts,
+    [option]: (activeProject.counts[option] || 0) + 1
+  };
+  const updatedProject = updateProject(activeProject.id, { counts });
 
-  res.json({ success: true, counts: computeCounts(activeProject) });
+  user.votes = { ...user.votes, [activeProject.id]: option };
+  user.connected = true;
+  updateCouncillor(user);
+
+  audit(user.username, 'Voto emitido', `${activeProject.project} • ${option}`);
+  res.json({ success: true, counts: computeCounts(updatedProject) });
 });
 
 app.post('/api/project/:id/activate', authMiddleware, (req, res) => {
@@ -485,11 +738,137 @@ app.post('/api/project/:id/activate', authMiddleware, (req, res) => {
     return res.status(404).json({ error: 'Proyecto no encontrado.' });
   }
   activeProjectId = project.id;
+  audit(req.user.username, 'Proyecto activado', `${project.project} pasó a ser el proyecto en votación`);
   res.json({ activeProjectId });
+});
+
+app.post('/api/sessions/:id/activate', authMiddleware, (req, res) => {
+  const session = getAllSessions().find(item => item.id === Number(req.params.id));
+  if (!session) {
+    return res.status(404).json({ error: 'Sesión no encontrada.' });
+  }
+  db.prepare('UPDATE sessions SET active = 0').run();
+  db.prepare('UPDATE sessions SET active = 1, status = ? WHERE id = ?').run(session.status === 'cerrada' ? 'abierta' : session.status, session.id);
+  audit(req.user.username, 'Sesión activada', `${session.name} • ${session.date}`);
+  res.json({ activeSessionId: session.id });
+});
+
+app.get('/api/votaciones', (req, res) => {
+  const councillors = getAllCouncillors();
+  const projects = getAllProjects();
+  res.json(projects.map(project => {
+    const detalle = { afirmativo: [], negativo: [], abstencion: [], pendientes: [] };
+    councillors.forEach(councillor => {
+      const voto = councillor.votes[project.id];
+      if (voto && detalle[voto]) {
+        detalle[voto].push({ id: councillor.id, name: councillor.name, bloque: bloqueName(councillor.bloqueId) });
+      } else {
+        detalle.pendientes.push({ id: councillor.id, name: councillor.name, bloque: bloqueName(councillor.bloqueId) });
+      }
+    });
+    return {
+      id: project.id,
+      project: project.project,
+      title: project.title,
+      type: project.type,
+      status: project.status,
+      startedAtFull: project.startedAtFull,
+      counts: computeCounts(project),
+      detalle
+    };
+  }));
+});
+
+app.get('/api/configuracion', authMiddleware, (req, res) => {
+  const sessions = getAllSessions();
+  const activeSession = sessions.find(session => session.active) || sessions[0] || null;
+  res.json({ config: getConfig(), quorumSesion: activeSession ? activeSession.quorumRequired : null });
+});
+
+app.put('/api/configuracion', authMiddleware, (req, res) => {
+  const permitidas = ['municipio_sede', 'mayoria', 'duracion_votacion', 'pantalla_publica', 'notificaciones'];
+  const cambios = Object.entries(req.body || {}).filter(([clave]) => permitidas.includes(clave));
+  if (cambios.length === 0) {
+    return res.status(400).json({ error: 'No hay valores válidos para guardar.' });
+  }
+  cambios.forEach(([clave, valor]) => setConfig(clave, valor));
+  audit(req.user.username, 'Configuración', cambios.map(([clave]) => clave).join(', '));
+  res.json({ config: getConfig() });
+});
+
+function codigoActivo() {
+  const config = getConfig();
+  const sessions = getAllSessions();
+  const activeSession = sessions.find(session => session.active) || sessions[0] || null;
+  if (!activeSession) {
+    return null;
+  }
+  const guardado = Number(config.qr_sesion || 0);
+  if (guardado !== activeSession.id || !config.qr_codigo) {
+    const codigo = crypto.randomBytes(4).toString('hex').toUpperCase();
+    setConfig('qr_codigo', codigo);
+    setConfig('qr_sesion', String(activeSession.id));
+    return { codigo, sesion: activeSession, creada: true };
+  }
+  return { codigo: config.qr_codigo, sesion: activeSession, creada: false };
+}
+
+app.get('/api/asistencia/qr', authMiddleware, (req, res) => {
+  const qr = codigoActivo();
+  if (!qr) {
+    return res.status(404).json({ error: 'No hay sesiones registradas.' });
+  }
+  const registrados = db.prepare('SELECT COUNT(*) AS count FROM asistencias WHERE sesion_id = ?').get(qr.sesion.id).count;
+  const councillors = getAllCouncillors();
+  res.json({
+    codigo: qr.codigo,
+    url: `/asistencia?codigo=${qr.codigo}`,
+    sesion: qr.sesion,
+    registrados,
+    total: councillors.length,
+    ausentes: councillors.filter(c => !c.connected).map(c => ({ id: c.id, name: c.name, bloque: bloqueName(c.bloqueId) }))
+  });
+});
+
+app.get('/api/asistencia', authMiddleware, (req, res) => {
+  const rows = db.prepare(`
+    SELECT a.id, a.creado_en AS creadoEn, a.metodo, a.codigo, a.concejal_id AS concejalId, c.name, c.role
+    FROM asistencias a
+    LEFT JOIN councillors c ON c.id = a.concejal_id
+    ORDER BY a.id DESC
+    LIMIT 50
+  `).all();
+  res.json(rows);
+});
+
+app.post('/api/asistencia/checkin', (req, res) => {
+  const { codigo, username } = req.body || {};
+  const config = getConfig();
+  if (!codigo || codigo.toUpperCase() !== String(config.qr_codigo || '').toUpperCase()) {
+    return res.status(400).json({ error: 'El código de asistencia no es válido.' });
+  }
+  const concejal = getCouncillorByUsername(String(username || '').trim().toLowerCase());
+  if (!concejal) {
+    return res.status(404).json({ error: 'Concejal no encontrado.' });
+  }
+
+  concejal.connected = true;
+  updateCouncillor(concejal);
+
+  const sessions = getAllSessions();
+  const activeSession = sessions.find(session => session.active) || sessions[0] || null;
+  const ahora = new Date().toLocaleString('es-AR');
+  db.prepare('INSERT INTO asistencias (sesion_id, concejal_id, codigo, metodo, creado_en) VALUES (?, ?, ?, ?, ?)')
+    .run(activeSession ? activeSession.id : null, concejal.id, String(codigo).toUpperCase(), 'qr', ahora);
+  audit(concejal.username, 'Asistencia QR', `${concejal.name} marcó presencia`);
+  res.json({ success: true, name: concejal.name });
 });
 
 app.get('/api/overview', (req, res) => {
   const activeProject = getActiveProject();
+  if (!activeProject) {
+    return res.status(404).json({ error: 'No hay un proyecto en votación.' });
+  }
   res.json({
     project: activeProject.project,
     title: activeProject.title,
@@ -513,12 +892,84 @@ function getResult(project) {
   return { label: 'EMPATE', color: 'orange' };
 }
 
+const VISTAS = {
+  dashboard: { titulo: 'Votación en curso', descripcion: 'Sesión en tiempo real, resumen y emisión de votos.' },
+  usuarios: { titulo: 'Usuarios', descripcion: 'Cuentas, roles y estado de conexión del cuerpo legislativo.' },
+  concejales: { titulo: 'Concejales', descripcion: 'Datos de concejales, bloque y asistencia a la sesión.' },
+  bloques: { titulo: 'Bloques', descripcion: 'Bloques políticos, integrantes y presencia por bloque.' },
+  municipios: { titulo: 'Municipios', descripcion: 'Municipios del departamento y su peso electoral.' },
+  sesiones: { titulo: 'Sesiones', descripcion: 'Sesiones convocadas, estado y quórum requerido.' },
+  'asistencia-qr': { titulo: 'Asistencia QR', descripcion: 'Código de asistencia y marcas de presencia del día.' },
+  quorum: { titulo: 'Quórum', descripcion: 'Concejales presentes, ausentes y validez del quórum.' },
+  'orden-del-dia': { titulo: 'Orden del Día', descripcion: 'Puntos del orden del día y su estado de tratamiento.' },
+  proyectos: { titulo: 'Proyectos', descripcion: 'Expedientes ingresados y su estado de votación.' },
+  votaciones: { titulo: 'Votaciones', descripcion: 'Detalle voto a voto de cada proyecto tratado.' },
+  reportes: { titulo: 'Reportes', descripcion: 'Indicadores consolidados y descarga de resultados.' },
+  estadisticas: { titulo: 'Estadísticas', descripcion: 'Comportamiento histórico del cuerpo y participación.' },
+  auditoria: { titulo: 'Auditoría', descripcion: 'Registro de acciones realizadas sobre el sistema.' },
+  configuracion: { titulo: 'Configuración', descripcion: 'Parámetros de funcionamiento del sistema de votación.' }
+};
+
+const cacheVistas = new Map();
+
+function leerVista(nombre) {
+  if (!cacheVistas.has(nombre)) {
+    cacheVistas.set(nombre, fs.readFileSync(path.join(__dirname, 'public', nombre), 'utf8'));
+  }
+  return cacheVistas.get(nombre);
+}
+
+function renderPagina(res, clave) {
+  const vista = VISTAS[clave];
+  const pagina = leerVista(`vistas/${clave}.html`);
+  const nav = Object.entries(VISTAS)
+    .map(([key, item]) => `<a class="nav-link${key === clave ? ' active' : ''}" href="/${key}">${item.titulo}</a>`)
+    .join('\n        ');
+  const html = leerVista('layout.html')
+    .replace('{{NAV}}', () => nav)
+    .replace('{{TITULO}}', () => `${vista.titulo} • Concejo Deliberante`)
+    .replace('{{PAGE}}', () => clave)
+    .replace('{{CABECERA}}', () => vista.titulo)
+    .replace('{{DESCRIPCION}}', () => vista.descripcion)
+    .replace('{{CONTENIDO}}', () => pagina);
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
+}
+
+function paginaProtegida(req, res, next) {
+  const token = tokenFrom(req);
+  if (!token || !tokens.has(token)) {
+    return res.redirect('/login');
+  }
+  next();
+}
+
+Object.keys(VISTAS).forEach(clave => {
+  app.get(`/${clave}`, paginaProtegida, (req, res) => renderPagina(res, clave));
+});
+
+app.get('/', (req, res) => {
+  res.redirect('/dashboard');
+});
+
+app.get('/login', (req, res) => {
+  const token = tokenFrom(req);
+  if (token && tokens.has(token)) {
+    return res.redirect('/dashboard');
+  }
+  res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+app.get('/asistencia', (req, res) => {
+  res.sendFile(path.join(__dirname, 'public', 'asistencia.html'));
+});
+
 app.get('/screen', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'screen.html'));
 });
 
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.redirect('/dashboard');
 });
 
 const port = process.env.PORT || 3000;
