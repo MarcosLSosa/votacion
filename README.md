@@ -1,90 +1,77 @@
-# Sistema de Votación del Concejo Deliberante
+# Sistema de Votación — Concejo Deliberante
 
-## Descripción general
-Este proyecto es una plataforma de votación para un concejo deliberante, con módulos para:
-- Login de concejales
-- Dashboard de sesión y resultados
-- Gestión de usuarios
-- Administración de concejales, bloques y municipios
-- Sesiones, orden del día y quórum
-- Proyectos y votaciones
-- Asistencia QR (estructura)
-- Pantalla pública en vivo
-- Reportes, estadísticas y auditoría
-- Configuración del sistema
+Panel de votación para un concejo deliberante: login de concejales, votación nominal en vivo, quórum, asistencia por código/QR, sesiones, proyectos, orden del día, reportes, estadísticas, auditoría y configuración. Incluye pantalla pública para proyectar en el recinto.
 
-## Estructura del proyecto
-- `server.js`: servidor Express que expone APIs y sirve contenido estático.
-- `package.json`: dependencias del proyecto.
-- `public/index.html`: interfaz principal.
-- `public/app.js`: lógica de la aplicación y módulos.
-- `public/styles.css`: estilos de la interfaz.
-- `public/screen.html`: pantalla pública de resultados.
-- `public/screen.js`: lógica de actualización de pantalla pública.
-- `public/screen.css`: estilos de pantalla pública.
+**Stack:** Node.js 22 + Express 4 + SQLite (`better-sqlite3`) + HTML/CSS/JS plano (sin framework, sin build, sin CSS procesado). El panel es **multipágina del lado del servidor**: cada módulo tiene su URL, el servidor arma el HTML desde plantillas y el JavaScript del navegador sólo carga y pinta los datos de la API.
 
-## Cómo correr el proyecto
-1. Abre una terminal en la carpeta del proyecto.
-2. Ejecuta `npm install` si todavía no instalaste dependencias.
-3. Ejecuta `npm start`.
-4. Abre `http://localhost:3000` en el navegador.
+## Requisitos y arranque
 
-## Módulos disponibles
-La aplicación actual tiene los siguientes módulos en la barra lateral:
-- Dashboard
-- Usuarios
-- Concejales
-- Bloques
-- Municipios
-- Sesiones
-- Asistencia QR
-- Quórum
-- Orden del Día
-- Proyectos
-- Votaciones
-- Pantalla Pública
-- Reportes
-- Estadísticas
-- Auditoría
-- Configuración
+```bash
+npm install          # express, cors, better-sqlite3
+npm start            # http://localhost:3000
+npm run dev          # mismo pero con node --watch
+PORT=3001 npm start  # puerto alternativo
+```
 
-## Cómo usar la aplicación
-1. Ingresa con un usuario demo (por ejemplo `sofia`, `juan`, `maria`, etc.) y contraseña `1234`.
-2. El Dashboard muestra la votación activa y el estado de la sesión.
-3. Usa la barra lateral para navegar entre módulos.
-4. El módulo `Sesiones` muestra sesiones programadas y su estado.
-5. El módulo `Orden del Día` muestra los puntos en discusión.
-6. El módulo `Quórum` muestra si el quórum necesario fue alcanzado.
-7. El módulo `Votaciones` resume la votación actual.
-8. El módulo `Asistencia QR` muestra el estado de asistencia (conexión) y votos pendientes.
-9. El módulo `Reportes` muestra métricas generales de la sesión.
-10. El módulo `Estadísticas` muestra una vista de datos agregados.
-11. El módulo `Auditoría` muestra eventos recientes.
-12. El enlace `Pantalla pública` abre una vista en vivo para audiencias.
+Requiere Node 22 o superior (`better-sqlite3` 13). La base `data/votacion.db` se crea sola al primer arranque y carga los datos demo; esa carpeta está gitignoreada, así que borrarla es la forma de resetear el sistema.
 
-## APIs principales
-- `GET /api/session`: datos de la votación activa y resumen.
-- `GET /api/projects`: lista de proyectos con conteos.
-- `GET /api/history`: proyectos finalizados.
-- `GET /api/sessions`: sesiones disponibles.
-- `GET /api/order-of-day`: orden del día actual.
-- `GET /api/quorum`: estado del quórum.
-- `GET /api/attendance`: asistencia y estado de voto.
-- `GET /api/reports`: datos de reportes generales.
-- `GET /api/stats`: estadísticas agregadas.
-- `POST /api/auth/login`: inicio de sesión.
-- `POST /api/vote`: emitir voto.
+**Usuarios demo** (clave `1234` para todos): `sofia` (Presidenta), `juan`, `maria`, `carlos`, `ana`, `pedro`, `lucia`, `diego`, `marta`, `raul`, `patricia`, `leo`.
 
-## Ver los cambios online
-Para ver los cambios en vivo:
-1. Arranca el servidor con `npm start`.
-2. Navega a `http://localhost:3000`.
-3. Navega a `http://localhost:3000/screen` para la pantalla pública.
-4. Cada vez que navegues a un módulo, la app carga los datos de la API.
+## Rutas
 
-## Próximos pasos sugeridos
-- Implementar edición/creación real de usuarios, proyectos y sesiones.
-- Añadir registro y lectura de asistencia QR.
-- Agregar persistencia de datos con base de datos.
-- Completar rutas API de `Usuarios`, `Bloques`, `Municipios` y `Configuración`.
-- Mejorar el flujo de votaciones con cierre de sesiones y resultados definitivos.
+| URL | Qué es |
+| --- | --- |
+| `/login` | Ingreso de concejales (pública) |
+| `/asistencia?codigo=…` | Marcado de presencia desde el celular (pública) |
+| `/screen` | Pantalla pública de resultados (pública) |
+| `/` | Redirige a `/dashboard` o a `/login` según la sesión |
+| `/dashboard` | Votación en curso y botones de voto |
+| `/usuarios` `/concejales` `/bloques` `/municipios` | Administración del cuerpo |
+| `/sesiones` `/asistencia-qr` `/quorum` `/orden-del-dia` | Sesión y presencia |
+| `/proyectos` `/votaciones` | Temas y detalle voto a voto |
+| `/reportes` `/estadisticas` `/auditoria` | Cierres, métricas y bitácora |
+| `/configuracion` | Parámetros del sistema |
+| `/api/...` | API JSON (ver `docs/API.md`) |
+
+Las 15 páginas del panel y varias APIs exigen sesión: una cookie `votacion_token` (HttpOnly, SameSite=Lax, 8 h) que coloca el login, o el header `x-auth-token` para pruebas. Sin sesión, las páginas redirigen a `/login` (302) y las APIs responden 401.
+
+## Documentación
+
+| Archivo | Contenido |
+| --- | --- |
+| `docs/API.md` | Referencia de todos los endpoints con ejemplos `curl` |
+| `docs/ARQUITECTURA.md` | Capas, ciclo de una request, sesión, plantillas, datos, límites conocidos |
+| `docs/MANUAL_DE_USO.md` | Guía módulo por módulo: votar, asistencia QR, pantalla pública, imprimir |
+| `docs/PRUEBAS.md` | Cómo se probó, resultados de la última corrida y cómo volver a correrlo |
+
+## Pruebas
+
+```bash
+npm start &
+bash tests/smoke-api.sh                       # rutas, 302/401, API, voto, QR, config, logout
+google-chrome --headless=new --remote-debugging-port=9222 about:blank &
+node tests/navegador-cdp.mjs                  # login real, 15 páginas, sin errores de consola
+```
+
+`smoke-api.sh` hace 101 verificaciones con `curl`; `navegador-cdp.mjs` hace 40 sobre Chrome real por DevTools Protocol (Node 22 ya trae `WebSocket`, no hace falta puppeteer). Última corrida: ambas en verde y cero errores de consola en las 15 páginas.
+
+## Estructura
+
+```
+server.js                 servidor: tablas, seed, APIs, sesión, plantillas
+public/
+  layout.html             shell (sidebar + top bar) con placeholders {{NAV}} {{CONTENIDO}}…
+  vistas/*.html           15 vistas, una por módulo
+  app.js                  un cargador por página + mapa CARGADORES por data-page
+  login.html/js           ingreso
+  asistencia.html/js      marcado de presencia público
+  screen.html/js/css      pantalla pública
+  styles.css              design system del panel (tema oscuro, tablas, KPIs, print)
+data/votacion.db          SQLite (gitignored)
+tests/                    smoke de API + prueba de navegador por CDP
+docs/                     API, arquitectura, manual de uso y pruebas
+```
+
+## Estado y próximos pasos
+
+Funciona de punta a punta en local: login, votación nominal única, quórum, asistencia por código con autogeneración por sesión, activación de proyectos y sesiones, configuración persistida y auditoría de todo. Lo que falta para producción está listado en `docs/ARQUITECTURA.md` (contraseñas con hash, roles, CSRF, APIs de lectura cerradas, sesiones persistentes, timer de votación, imagen QR y exportaciones).
