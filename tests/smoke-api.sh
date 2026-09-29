@@ -71,6 +71,16 @@ TOKEN=$(grep -o '"token":"[^"]*"' <<<"$login" | cut -d'"' -f4)
 AUTH=(-H "x-auth-token: $TOKEN")
 CODIGO=$(curl -s "${AUTH[@]}" "$APP_URL/api/asistencia/qr" | grep -o '"codigo":"[^"]*"' | cut -d'"' -f4)
 
+echo "== 3b. Presencia registrada por login =="
+asistencias=$(curl -s "${AUTH[@]}" "$APP_URL/api/asistencia")
+PASOS=$((PASOS + 1))
+if grep -q '"metodo":"panel"' <<<"$asistencias"; then
+  printf '  ok    %-48s el login deja marca de presencia\n' 'GET /api/asistencia'
+else
+  printf '  FALLA %-48s sin marca de login: %s\n' 'GET /api/asistencia' "${asistencias:0:120}"
+  FALLOS=$((FALLOS + 1))
+fi
+
 echo "== 4. Paginas con sesion =="
 for p in "${PAGINAS[@]}"; do
   paso "GET $p" "$(estado $p -b "$JAR")" 200
@@ -80,9 +90,13 @@ contenido /dashboard 'class="vote-panel'
 contenido /asistencia-qr 'id="qrCodigo"'
 
 echo "== 5. API de lectura =="
-for r in /api/session /api/projects /api/history /api/sessions /api/order-of-day /api/quorum /api/attendance /api/reports /api/stats /api/votaciones /api/overview /api/usuarios /api/councillors /api/bloques /api/municipios; do
+for r in /api/session /api/projects /api/history /api/sessions /api/order-of-day /api/quorum /api/attendance /api/reports /api/stats /api/votaciones /api/overview /api/usuarios /api/councillors /api/bloques /api/municipios /api/screen; do
   paso "GET $r" "$(estado $r)" 200
 done
+contenido '/api/screen' '"quorumAlcanzado"'
+contenido '/api/screen' '"bloqueColor"'
+contenido '/api/screen' '"presente":'
+contenido '/api/screen' '"serverAt"'
 paso "GET /api/project/1" "$(estado /api/project/1)" 200
 paso "GET /api/project/9999" "$(estado /api/project/9999)" 404
 

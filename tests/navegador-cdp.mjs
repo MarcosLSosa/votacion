@@ -221,7 +221,45 @@ const PAGINAS = [
     );
   }
 
-  console.log('== 6. Salida y bloqueo ==');
+  console.log('== 6. Pantalla publica /screen ==');
+  erroresJS = [];
+  await ir(`${APP}/screen`);
+  const pantalla = await js(send, sessionId, `(() => {
+    const ficha = document.querySelector('.ficha.presente');
+    const fichas = document.querySelectorAll('.ficha');
+    const cards = [...document.querySelectorAll('.vcard')];
+    const reloj = document.getElementById('screenClock').textContent.trim();
+    return {
+      path: location.pathname,
+      live: document.querySelector('.live') ? document.querySelector('.live').textContent.trim() : '',
+      fichas: fichas.length,
+      presentes: document.querySelectorAll('.ficha.presente').length,
+      ausentes: document.querySelectorAll('.ficha.ausente').length,
+      enLinea: document.querySelectorAll('.ficha.envivo').length,
+      voton: ficha ? getComputedStyle(ficha.querySelector('.voton')).backgroundImage : '',
+      votonTexto: ficha ? ficha.querySelector('.voton-texto strong').textContent.trim() : '',
+      donut: document.getElementById('voteDonut').style.background.slice(0, 20),
+      barra: document.getElementById('presenceFill').style.width,
+      big: document.getElementById('presenceBigText').textContent.trim(),
+      quorum: document.getElementById('screenQuorumState').textContent.trim(),
+      cards: cards.length,
+      numeros: cards.map(c => c.querySelector('.vnum').textContent.trim()),
+      reloj: /^\\d{1,2}:\\d{2}:\\d{2}$/.test(reloj),
+      alertaOculta: document.getElementById('screenAlert').hidden
+    };
+  })()`);
+  paso('/screen muestra una ficha por concejal', pantalla.path === '/screen' && pantalla.fichas > 0 && pantalla.fichas === pantalla.presentes + pantalla.ausentes, `fichas=${pantalla.fichas}`);
+  paso('el voton verde dice PRESENTE', pantalla.votonTexto === 'PRESENTE' && pantalla.voton.includes('rgb(46, 224, 122)'), `${pantalla.votonTexto} · ${pantalla.voton.slice(0, 46)}`);
+  paso('presentes + ausentes cubren el cuerpo y hay conectados', pantalla.presentes > 0 && pantalla.enLinea >= 0, `presentes=${pantalla.presentes} ausentes=${pantalla.ausentes} enLinea=${pantalla.enLinea}`);
+  paso('la dona usa conic-gradient con los conteos', pantalla.donut.startsWith('conic-gradient'), pantalla.donut);
+  paso('barras de presencia y voton global verde', /%$/.test(pantalla.barra) && Number.parseFloat(pantalla.barra) > 0 && /PRESENT/.test(pantalla.big), `${pantalla.barra} · ${pantalla.big}`);
+  paso('cuatro tarjetas de conteo con numeros', pantalla.cards === 4 && pantalla.numeros.every(n => /^\d+$/.test(n)), `cards=${pantalla.cards} · ${pantalla.numeros.join('/')}`);
+  paso('reloj en vivo y quorum indicado', pantalla.reloj && /QUÓRUM/.test(pantalla.quorum), `${pantalla.quorum}`);
+  paso('/screen sin errores de consola', erroresJS.length === 0 && pantalla.alertaOculta, erroresJS.slice(0, 2).join(' | '));
+
+  console.log('== 7. Salida y bloqueo ==');
+  // volvemos al panel: /screen es pública y no tiene el botón de salida
+  await ir(`${APP}/dashboard`);
   await js(send, sessionId, `document.getElementById('logoutBtn').click()`);
   await sleep(1500);
   const salida = await js(send, sessionId, `(() => ({
