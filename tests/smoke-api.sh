@@ -26,9 +26,9 @@ estado() { # url [extra curl...] -> http code
   curl -s -o /dev/null -w '%{http_code}' "$@" "$APP_URL$url"
 }
 
-contenido() { # url texto_esperado (usa la cookie de sesión)
-  local body
-  body=$(curl -s -b "$JAR" "$APP_URL$1")
+contenido() { # url texto_esperado [jar] (usa la cookie de sesión)
+  local body jar="${3:-$JAR}"
+  body=$(curl -s -b "$jar" "$APP_URL$1")
   PASOS=$((PASOS + 1))
   if grep -q -- "$2" <<<"$body"; then
     printf '  ok    %-48s contiene "%s"\n' "$1" "$2"
@@ -38,7 +38,34 @@ contenido() { # url texto_esperado (usa la cookie de sesión)
   fi
 }
 
+sin_contenido() { # url texto_no_esperado [jar]
+  local body jar="${3:-$JAR}"
+  body=$(curl -s -b "$jar" "$APP_URL$1")
+  PASOS=$((PASOS + 1))
+  if grep -q -- "$2" <<<"$body"; then
+    printf '  FALLA %-48s no debería contener "%s"\n' "$1" "$2"
+    FALLOS=$((FALLOS + 1))
+  else
+    printf '  ok    %-48s sin "%s"\n' "$1" "$2"
+  fi
+}
+
+token_de() { # usuario clave -> token
+  curl -s -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"username\":\"$1\",\"password\":\"$2\"}" | grep -o '"token":"[^"]*"' | cut -d'"' -f4
+}
+
+jar_de() { # usuario clave -> archivo de cookies
+  local jar; jar=$(mktemp)
+  curl -s -o /dev/null -c "$jar" -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' \
+    -d "{\"username\":\"$1\",\"password\":\"$2\"}"
+  echo "$jar"
+}
+
 PAGINAS=(/dashboard /usuarios /concejales /bloques /municipios /sesiones /asistencia-qr /quorum /orden-del-dia /proyectos /votaciones /reportes /estadisticas /auditoria /configuracion)
+# Páginas que sólo Mesa o Administrador pueden abrir.
+PAGINAS_MESA=(/sesiones /asistencia-qr /auditoria)
+PAGINAS_ADMIN=(/usuarios /configuracion)
 
 echo "== 1. Rutas publicas =="
 for r in /login /asistencia /screen; do

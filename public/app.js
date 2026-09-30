@@ -3,6 +3,41 @@ const USER_KEY = 'votacion:user';
 
 const pagina = document.body.dataset.page || 'dashboard';
 
+/*
+ * Nivel de acceso del usuario logueado (concejal < mesa < admin).
+ * Lo define el servidor en /api/auth/me; acá sólo se usa para mostrar u ocultar
+ * controles, porque la autoridad real la tienen los middleware de server.js.
+ */
+let usuarioActual = null;
+
+function puedeGestionar() {
+  return usuarioActual ? Boolean(usuarioActual.puede && usuarioActual.puede.gestionarSesion) : true;
+}
+
+function esAdmin() {
+  return usuarioActual ? Boolean(usuarioActual.puede && usuarioActual.puede.administrar) : true;
+}
+
+function paginaPermitida(clave) {
+  if (!usuarioActual || !Array.isArray(usuarioActual.paginas)) {
+    return true;
+  }
+  return usuarioActual.paginas.includes(clave);
+}
+
+// La nav ya viene filtrada desde el servidor; esto cubre la sesión recién cambiada.
+function ajustarNav() {
+  if (!usuarioActual || !Array.isArray(usuarioActual.paginas)) {
+    return;
+  }
+  document.querySelectorAll('.nav-link').forEach(link => {
+    const destino = (link.getAttribute('href') || '').replace(/^\//, '');
+    if (destino && !usuarioActual.paginas.includes(destino)) {
+      link.remove();
+    }
+  });
+}
+
 function el(id) {
   return document.getElementById(id);
 }
@@ -56,6 +91,10 @@ async function api(ruta, opciones = {}) {
   }
 
   const data = await response.json().catch(() => ({}));
+  if (response.status === 403) {
+    // 403 no es sesión expirada: el usuario sigue adentro, sólo ve menos.
+    throw new Error(data.error || 'No tenés permiso para ver esta sección.');
+  }
   if (!response.ok) {
     throw new Error(data.error || 'El servidor respondió un error.');
   }
@@ -181,6 +220,11 @@ function pintarPerfil(usuario) {
   }
   texto('profileName', usuario.name);
   texto('profileRole', usuario.role);
+  const badge = el('profilePerfil');
+  if (badge) {
+    badge.textContent = usuario.nivel || 'Concejal';
+    badge.className = `badge nivel-${usuario.perfil || 'concejal'}`;
+  }
   const avatar = el('profileAvatar');
   if (avatar) {
     avatar.textContent = usuario.name
@@ -271,14 +315,16 @@ async function cargarProyectosDashboard() {
     const acciones = document.createElement('div');
     acciones.className = 'project-item-actions';
     acciones.appendChild(project.status === 'abierta' ? etiqueta('En votación', 'verde') : etiqueta('Finalizado', 'gris'));
-    acciones.appendChild(boton('Activar', async () => {
-      try {
-        await api(`/api/project/${project.id}/activate`, { method: 'POST' });
-        await cargarDashboard();
-      } catch (error) {
-        console.error(error);
-      }
-    }));
+    if (puedeGestionar()) {
+      acciones.appendChild(boton('Activar', async () => {
+        try {
+          await api(`/api/project/${project.id}/activate`, { method: 'POST' });
+          await cargarDashboard();
+        } catch (error) {
+          console.error(error);
+        }
+      }));
+    }
     item.appendChild(acciones);
     lista.appendChild(item);
   });
@@ -311,20 +357,74 @@ function conectarVotos() {
   });
 }
 
+const NIVELES_LABEL = [['concejal', 'Concejal'], ['mesa', 'Mesa'], ['admin', 'Administrador']];
+
+/*
+ * Celda de nivel en /usuarios. Un admin ve el selector para subir o bajar a
+ * alguien; el resto (si llegara a ver la tabla) ve sólo la etiqueta.
+ */
+function celdaNivel(usuario) {
+  const contenedor = document.createElement('div');
+  contenedor.className = 'nivel-celula';
+  const perfil = usuario.perfil || 'concejal';
+  if (!esAdmin()) {
+    contenedor.appendChild(etiqueta(usuario.nivel || 'Concejal', `nivel-${perfil}`));
+    return contenedor;
+  }
+
+  const selector = document.createElement('select');
+  selector.className = 'nivel-selector';
+  NIVELES_LABEL.forEach(([valor, etiquetaNivel]) => {
+    const opcion = document.createElement('option');
+    opcion.value = valor;
+    opcion.textContent = etiquetaNivel;
+    if (perfil === valor) {
+      opcion.selected = true;
+    }
+    selector.appendChild(opcion);
+  });
+  if (usuarioActual && usuario.id === usuarioActual.id) {
+    selector.disabled = true;
+    selector.title = 'No podés cambiar tu propio nivel';
+  }
+  selector.addEventListener('change', () => cambiarNivel(usuario, selector));
+  contenedor.appendChild(selector);
+  return contenedor;
+}
+
+async function cambiarNivel(usuario, selector) {
+  const mensaje = el('usuariosMensaje');
+  const elegido = selector.options[selector.selectedIndex].text;
+  try {
+    await api(`/api/usuarios/${usuario.id}/perfil`, { method: 'PUT', body: { perfil: selector.value } });
+    if (mensaje) {
+      mensaje.style.color = '#2fa84f';
+      mensaje.textContent = `Nivel de ${usuario.name} actualizado a ${elegido}.`;
+    }
+  } catch (error) {
+    if (mensaje) {
+      mensaje.style.color = '#d93e4a';
+      mensaje.textContent = error.message;
+    }
+  }
+  await cargarUsuarios();
+}
+
 async function cargarUsuarios() {
   const usuarios = await api('/api/usuarios');
   texto('usuariosTotal', usuarios.length);
   texto('usuariosActivos', usuarios.filter(u => u.conectado).length);
+  texto('usuariosAdmin', usuarios.filter(u => u.perfil === 'admin').length);
   texto('usuariosVotos', usuarios.reduce((sum, u) => sum + u.votosEmitidos, 0));
   cuerpo('tbodyUsuarios', usuarios.map(u => fila([
     u.id,
     u.name,
     u.role,
     u.username,
-    u.email,
     u.bloque,
     etiqueta(u.estado, u.conectado ? 'verde' : 'gris'),
-    u.votosEmitidos
+    u.votosEmitidos,
+    celdaNivel(u)
   ])), 8);
 }
 
@@ -410,14 +510,16 @@ async function cargarSesiones() {
     s.projectCount,
     s.active
       ? etiqueta('En curso', 'azul')
-      : boton('Activar', async () => {
-        try {
-          await api(`/api/sessions/${s.id}/activate`, { method: 'POST' });
-          await cargarSesiones();
-        } catch (error) {
-          console.error(error);
-        }
-      })
+      : puedeGestionar()
+        ? boton('Activar', async () => {
+          try {
+            await api(`/api/sessions/${s.id}/activate`, { method: 'POST' });
+            await cargarSesiones();
+          } catch (error) {
+            console.error(error);
+          }
+        })
+        : etiqueta('Solo lectura', 'gris')
   ])), 7);
 }
 
@@ -492,14 +594,16 @@ async function cargarOrden() {
       item.presenter,
       etiqueta(item.status, proyecto && proyecto.status === 'abierta' ? 'verde' : 'gris'),
       proyecto
-        ? boton('Activar votación', async () => {
-          try {
-            await api(`/api/project/${proyecto.id}/activate`, { method: 'POST' });
-            await cargarOrden();
-          } catch (error) {
-            console.error(error);
-          }
-        })
+        ? (puedeGestionar()
+          ? boton('Activar votación', async () => {
+            try {
+              await api(`/api/project/${proyecto.id}/activate`, { method: 'POST' });
+              await cargarOrden();
+            } catch (error) {
+              console.error(error);
+            }
+          })
+          : etiqueta('Solo lectura', 'gris'))
         : etiqueta('Sin expediente', 'gris')
     ]);
   }), 5);
@@ -519,14 +623,16 @@ async function cargarProyectos() {
     p.counts.afirmativo,
     p.counts.negativo,
     p.counts.abstencion,
-    boton('Activar', async () => {
-      try {
-        await api(`/api/project/${p.id}/activate`, { method: 'POST' });
-        await cargarProyectos();
-      } catch (error) {
-        console.error(error);
-      }
-    })
+    puedeGestionar()
+      ? boton('Activar', async () => {
+        try {
+          await api(`/api/project/${p.id}/activate`, { method: 'POST' });
+          await cargarProyectos();
+        } catch (error) {
+          console.error(error);
+        }
+      })
+      : etiqueta('Solo lectura', 'gris')
   ])), 9);
 }
 
@@ -777,6 +883,43 @@ const CARGADORES = {
   configuracion: cargarConfiguracion
 };
 
+let refresco = null;
+
+/*
+ * El servidor devuelve 403 con un mensaje tipo "… requiere Mesa / Administrador".
+ * Si eso llega mientras la página está abierta (bajaron el nivel de la sesión),
+ * conviene cortar el refresco automático y avisar en pantalla.
+ */
+function esErrorDeAcceso(error) {
+  return /permiso|nivel|restringido/i.test((error && error.message) || '');
+}
+
+function mostrarSinAcceso(mensaje) {
+  const contenido = el('contenido');
+  if (!contenido || contenido.dataset.bloqueado === '1') {
+    return;
+  }
+  contenido.dataset.bloqueado = '1';
+  contenido.textContent = '';
+
+  const tarjeta = document.createElement('div');
+  tarjeta.className = 'table-card';
+
+  const titulo = document.createElement('h3');
+  titulo.textContent = 'Acceso restringido';
+  const detalle = document.createElement('p');
+  detalle.className = 'muted';
+  detalle.textContent = mensaje || 'Tu nivel de acceso no alcanza para ver esta sección.';
+
+  const volver = document.createElement('a');
+  volver.className = 'btn';
+  volver.href = '/dashboard';
+  volver.textContent = 'Volver al panel';
+
+  tarjeta.append(titulo, detalle, volver);
+  contenido.appendChild(tarjeta);
+}
+
 async function cargarPagina() {
   const cargador = CARGADORES[pagina];
   if (!cargador) {
@@ -785,6 +928,15 @@ async function cargarPagina() {
   try {
     await cargador();
   } catch (error) {
+    if (esErrorDeAcceso(error)) {
+      if (refresco) {
+        clearInterval(refresco);
+        refresco = null;
+      }
+      console.warn(`Acceso restringido en ${pagina}:`, error.message);
+      mostrarSinAcceso(error.message);
+      return;
+    }
     console.error(`No se pudo cargar ${pagina}:`, error);
   }
 }
@@ -806,13 +958,22 @@ async function iniciar() {
     return;
   }
 
+  usuarioActual = usuario;
   pintarPerfil(usuario);
+  ajustarNav();
   await cargarCabecera();
+
+  // Las páginas restringidas ya se respondieron con la tarjeta de acceso limitado
+  // (data-page="sin-acceso"), así que acá no hay nada que cargar.
+  if (!paginaPermitida(pagina)) {
+    return;
+  }
+
   if (pagina === 'dashboard') {
     conectarVotos();
   }
   await cargarPagina();
-  setInterval(cargarPagina, 5000);
+  refresco = setInterval(cargarPagina, 5000);
 }
 
 iniciar();

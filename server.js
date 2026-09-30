@@ -108,11 +108,81 @@ if (columnaBloque === 0) {
   db.exec('ALTER TABLE councillors ADD COLUMN bloque_id INTEGER');
 }
 
+const columnaPerfil = db
+  .prepare("SELECT COUNT(*) AS count FROM pragma_table_info('councillors') WHERE name = 'perfil'")
+  .get().count;
+if (columnaPerfil === 0) {
+  db.exec('ALTER TABLE councillors ADD COLUMN perfil TEXT');
+}
+
+/*
+ * Niveles de acceso del panel. `councillors.perfil` guarda el nivel asignado y,
+ * si está vacío, se deduce del cargo (columna `role`).
+ *   concejal (1): vota y consulta la sesión.
+ *   mesa     (2): + auditoría, asistencia/QR y activar sesiones o proyectos.
+ *   admin    (3): + gestión de usuarios y configuración del sistema.
+ * Cada nivel incluye los permisos del anterior.
+ */
+const NIVELES = { concejal: 1, mesa: 2, admin: 3 };
+const PERFILES = {
+  concejal: { etiqueta: 'Concejal', nivel: NIVELES.concejal },
+  mesa: { etiqueta: 'Mesa', nivel: NIVELES.mesa },
+  admin: { etiqueta: 'Administrador', nivel: NIVELES.admin }
+};
+
+// Deducción del nivel a partir del cargo político ('Presidenta' → admin, etc).
+function perfilPorCargo(cargo) {
+  const texto = String(cargo || '').trim().toLowerCase();
+  if (/administrad[oa]r|t[eé]cnico|sistema/.test(texto)) {
+    return 'admin';
+  }
+  // 'Vicepresidente' se evalúa antes que 'Presidente': es mesa, no presidencia.
+  if (/^vice|secretario|secretaria|prosecretario/.test(texto)) {
+    return 'mesa';
+  }
+  if (/president[ea]/.test(texto)) {
+    return 'admin';
+  }
+  return 'concejal';
+}
+
+function normalizarPerfil(valor, cargo) {
+  const perfil = String(valor || '').trim().toLowerCase();
+  return PERFILES[perfil] ? perfil : perfilPorCargo(cargo);
+}
+
+function nivelDe(perfil) {
+  return PERFILES[perfil] ? PERFILES[perfil].nivel : PERFILES.concejal.nivel;
+}
+
+function permite(perfil, minimo) {
+  return nivelDe(normalizarPerfil(perfil)) >= (NIVELES[minimo] || 1);
+}
+
+/*
+ * Las bases previas a los roles no tienen `perfil`: se completa una sola vez
+ * según el cargo de cada concejal. Después manda lo que diga la columna.
+ */
+function sincronizarPerfiles() {
+  const pendientes = db.prepare("SELECT id, role FROM councillors WHERE perfil IS NULL OR perfil = ''").all();
+  if (pendientes.length === 0) {
+    return;
+  }
+  const asignar = db.prepare('UPDATE councillors SET perfil = ? WHERE id = ?');
+  const aplicar = db.transaction(rows => {
+    for (const row of rows) {
+      asignar.run(perfilPorCargo(row.role), row.id);
+    }
+  });
+  aplicar(pendientes);
+}
+
 function rowToCouncillor(row) {
   return {
     id: row.id,
     name: row.name,
     role: row.role,
+    perfil: normalizarPerfil(row.perfil, row.role),
     username: row.username,
     password: row.password,
     connected: Boolean(row.connected),
@@ -167,7 +237,7 @@ function getCouncillorById(id) {
 
 function updateCouncillor(updated) {
   db.prepare(
-    'UPDATE councillors SET name = ?, role = ?, username = ?, password = ?, connected = ?, votes = ? WHERE id = ?'
+    'UPDATE councillors SET name = ?, role = ?, username = ?, password = ?, connected = ?, votes = ?, perfil = ? WHERE id = ?'
   ).run(
     updated.name,
     updated.role,
@@ -175,6 +245,7 @@ function updateCouncillor(updated) {
     updated.password,
     updated.connected ? 1 : 0,
     JSON.stringify(updated.votes || {}),
+    normalizarPerfil(updated.perfil, updated.role),
     updated.id
   );
 }
@@ -383,6 +454,7 @@ function seedDatabase() {
 }
 
 seedDatabase();
+sincronizarPerfiles();
 
 let activeProjectId = 1;
 const tokens = new Map();
@@ -465,9 +537,40 @@ function authMiddleware(req, res, next) {
     return res.status(401).json({ error: 'No autorizado.' });
   }
 
-  req.user = tokens.get(token);
+  const sesion = tokens.get(token);
+  // El nivel puede haber cambiado después del login: se releen los datos fijos de la base.
+  const guardado = getCouncillorById(sesion.id);
+  const usuario = guardado
+    ? { ...sesion, name: guardado.name, role: guardado.role, username: guardado.username, perfil: guardado.perfil }
+    : sesion;
+  tokens.set(token, usuario);
+
+  req.user = usuario;
   req.token = token;
+  req.perfil = normalizarPerfil(usuario.perfil, usuario.role);
+  req.nivel = nivelDe(req.perfil);
   next();
+}
+
+/*
+ * Exige un nivel mínimo (concejal < mesa < admin). Responde 403 y deja constancia
+ * en la auditoría de quién intentó entrar a una sección que no le corresponde.
+ */
+function requirePerfil(minimo) {
+  return (req, res, next) => {
+    if (permite(req.perfil, minimo)) {
+      return next();
+    }
+    audit(
+      req.user ? req.user.username : 'anonimo',
+      'Acceso denegado',
+      `${req.method} ${req.originalUrl} requiere ${PERFILES[minimo].etiqueta} (nivel de ${req.user ? req.user.username : 'anonimo'}: ${PERFILES[req.perfil] ? PERFILES[req.perfil].etiqueta : 'concejal'})`
+    );
+    return res.status(403).json({
+      error: `Esta sección requiere el nivel ${PERFILES[minimo].etiqueta}. Tu nivel actual es ${PERFILES[req.perfil] ? PERFILES[req.perfil].etiqueta : 'Concejal'}.`,
+      requiere: minimo
+    });
+  };
 }
 
 function getActiveProject() {
@@ -637,17 +740,23 @@ app.get('/api/municipios', (req, res) => {
   res.json({ municipios, totalHabitantes: total });
 });
 
-app.get('/api/auditoria', authMiddleware, (req, res) => {
+app.get('/api/auditoria', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const desde = Number(req.query.limit) > 0 ? Number(req.query.limit) : 100;
   res.json(db.prepare('SELECT * FROM auditoria ORDER BY id DESC LIMIT ?').all(desde));
 });
 
-app.get('/api/usuarios', (req, res) => {
+/*
+ * Cuenta por cuenta del cuerpo: usernames, emails y estado de conexión.
+ * Es información de administración, así que sólo la ve el nivel admin.
+ */
+app.get('/api/usuarios', authMiddleware, requirePerfil('admin'), (req, res) => {
   const councillors = getAllCouncillors();
   res.json(councillors.map(councillor => ({
     id: councillor.id,
     name: councillor.name,
     role: councillor.role,
+    perfil: councillor.perfil,
+    nivel: PERFILES[councillor.perfil].etiqueta,
     username: councillor.username,
     email: `${councillor.username}@concejo.local`,
     bloque: bloqueName(councillor.bloqueId),
@@ -655,6 +764,39 @@ app.get('/api/usuarios', (req, res) => {
     estado: councillor.connected ? 'Activo' : 'Inactivo',
     votosEmitidos: Object.keys(councillor.votes || {}).length
   })));
+});
+
+/*
+ * Cambio de nivel desde /usuarios. Solo admin, no se puede uno degradar a sí
+ * mismo (así siempre queda alguien pudiendo volver a subirlo) y las sesiones
+ * vivas del usuario se actualizan para que el cambio tome efecto sin logout.
+ */
+app.put('/api/usuarios/:id/perfil', authMiddleware, requirePerfil('admin'), (req, res) => {
+  const destino = getCouncillorById(Number(req.params.id));
+  if (!destino) {
+    return res.status(404).json({ error: 'Usuario no encontrado.' });
+  }
+  const perfil = String((req.body || {}).perfil || '').trim().toLowerCase();
+  if (!PERFILES[perfil]) {
+    return res.status(400).json({ error: 'Nivel inválido. Usá concejal, mesa o admin.' });
+  }
+  if (destino.id === req.user.id) {
+    return res.status(400).json({ error: 'No podés cambiar tu propio nivel.' });
+  }
+
+  db.prepare('UPDATE councillors SET perfil = ? WHERE id = ?').run(perfil, destino.id);
+  for (const [token, usuario] of tokens.entries()) {
+    if (usuario.id === destino.id) {
+      tokens.set(token, { ...usuario, perfil });
+    }
+  }
+
+  audit(
+    req.user.username,
+    'Cambio de nivel',
+    `${destino.name} (${destino.username}) pasó de ${PERFILES[destino.perfil].etiqueta} a ${PERFILES[perfil].etiqueta}`
+  );
+  res.json({ success: true, usuario: { id: destino.id, username: destino.username, perfil, nivel: PERFILES[perfil].etiqueta } });
 });
 
 app.get('/api/councillors', (req, res) => {
@@ -675,10 +817,18 @@ app.get('/api/councillors', (req, res) => {
 function publicUser(user) {
   const activeProject = getActiveProject();
   const activeId = activeProject ? activeProject.id : null;
+  const perfil = normalizarPerfil(user.perfil, user.role);
   return {
     id: user.id,
     name: user.name,
     role: user.role,
+    perfil,
+    nivel: PERFILES[perfil].etiqueta,
+    puede: {
+      gestionarSesion: permite(perfil, 'mesa'),
+      administrar: permite(perfil, 'admin')
+    },
+    paginas: paginasPermitidas(perfil),
     voted: Boolean(user.votes[activeId]),
     vote: user.votes[activeId] || null
   };
@@ -757,7 +907,7 @@ app.post('/api/vote', authMiddleware, (req, res) => {
   res.json({ success: true, counts: computeCounts(updatedProject) });
 });
 
-app.post('/api/project/:id/activate', authMiddleware, (req, res) => {
+app.post('/api/project/:id/activate', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const project = getProject(req.params.id);
   if (!project) {
     return res.status(404).json({ error: 'Proyecto no encontrado.' });
@@ -767,7 +917,7 @@ app.post('/api/project/:id/activate', authMiddleware, (req, res) => {
   res.json({ activeProjectId });
 });
 
-app.post('/api/sessions/:id/activate', authMiddleware, (req, res) => {
+app.post('/api/sessions/:id/activate', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const session = getAllSessions().find(item => item.id === Number(req.params.id));
   if (!session) {
     return res.status(404).json({ error: 'Sesión no encontrada.' });
@@ -804,13 +954,13 @@ app.get('/api/votaciones', (req, res) => {
   }));
 });
 
-app.get('/api/configuracion', authMiddleware, (req, res) => {
+app.get('/api/configuracion', authMiddleware, requirePerfil('admin'), (req, res) => {
   const sessions = getAllSessions();
   const activeSession = sessions.find(session => session.active) || sessions[0] || null;
   res.json({ config: getConfig(), quorumSesion: activeSession ? activeSession.quorumRequired : null });
 });
 
-app.put('/api/configuracion', authMiddleware, (req, res) => {
+app.put('/api/configuracion', authMiddleware, requirePerfil('admin'), (req, res) => {
   const permitidas = ['municipio_sede', 'mayoria', 'duracion_votacion', 'pantalla_publica', 'notificaciones'];
   const cambios = Object.entries(req.body || {}).filter(([clave]) => permitidas.includes(clave));
   if (cambios.length === 0) {
@@ -838,7 +988,7 @@ function codigoActivo() {
   return { codigo: config.qr_codigo, sesion: activeSession, creada: false };
 }
 
-app.get('/api/asistencia/qr', authMiddleware, (req, res) => {
+app.get('/api/asistencia/qr', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const qr = codigoActivo();
   if (!qr) {
     return res.status(404).json({ error: 'No hay sesiones registradas.' });
@@ -855,7 +1005,7 @@ app.get('/api/asistencia/qr', authMiddleware, (req, res) => {
   });
 });
 
-app.get('/api/asistencia', authMiddleware, (req, res) => {
+app.get('/api/asistencia', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const rows = db.prepare(`
     SELECT a.id, a.creado_en AS creadoEn, a.metodo, a.codigo, a.concejal_id AS concejalId, c.name, c.role
     FROM asistencias a
@@ -1020,23 +1170,33 @@ app.get('/api/screen', (req, res) => {
   });
 });
 
+/*
+ * Páginas del panel. `nivel` es el nivel mínimo exigido para verla:
+ * concejal (todos los logueados), mesa y admin. La nav se filtra con esto.
+ */
 const VISTAS = {
-  dashboard: { titulo: 'Votación en curso', descripcion: 'Sesión en tiempo real, resumen y emisión de votos.' },
-  usuarios: { titulo: 'Usuarios', descripcion: 'Cuentas, roles y estado de conexión del cuerpo legislativo.' },
-  concejales: { titulo: 'Concejales', descripcion: 'Datos de concejales, bloque y asistencia a la sesión.' },
-  bloques: { titulo: 'Bloques', descripcion: 'Bloques políticos, integrantes y presencia por bloque.' },
-  municipios: { titulo: 'Municipios', descripcion: 'Municipios del departamento y su peso electoral.' },
-  sesiones: { titulo: 'Sesiones', descripcion: 'Sesiones convocadas, estado y quórum requerido.' },
-  'asistencia-qr': { titulo: 'Asistencia QR', descripcion: 'Código de asistencia y marcas de presencia del día.' },
-  quorum: { titulo: 'Quórum', descripcion: 'Concejales presentes, ausentes y validez del quórum.' },
-  'orden-del-dia': { titulo: 'Orden del Día', descripcion: 'Puntos del orden del día y su estado de tratamiento.' },
-  proyectos: { titulo: 'Proyectos', descripcion: 'Expedientes ingresados y su estado de votación.' },
-  votaciones: { titulo: 'Votaciones', descripcion: 'Detalle voto a voto de cada proyecto tratado.' },
-  reportes: { titulo: 'Reportes', descripcion: 'Indicadores consolidados y descarga de resultados.' },
-  estadisticas: { titulo: 'Estadísticas', descripcion: 'Comportamiento histórico del cuerpo y participación.' },
-  auditoria: { titulo: 'Auditoría', descripcion: 'Registro de acciones realizadas sobre el sistema.' },
-  configuracion: { titulo: 'Configuración', descripcion: 'Parámetros de funcionamiento del sistema de votación.' }
+  dashboard: { titulo: 'Votación en curso', descripcion: 'Sesión en tiempo real, resumen y emisión de votos.', nivel: 'concejal' },
+  usuarios: { titulo: 'Usuarios', descripcion: 'Cuentas, niveles y estado de conexión del cuerpo legislativo.', nivel: 'admin' },
+  concejales: { titulo: 'Concejales', descripcion: 'Datos de concejales, bloque y asistencia a la sesión.', nivel: 'concejal' },
+  bloques: { titulo: 'Bloques', descripcion: 'Bloques políticos, integrantes y presencia por bloque.', nivel: 'concejal' },
+  municipios: { titulo: 'Municipios', descripcion: 'Municipios del departamento y su peso electoral.', nivel: 'concejal' },
+  sesiones: { titulo: 'Sesiones', descripcion: 'Sesiones convocadas, estado y quórum requerido.', nivel: 'mesa' },
+  'asistencia-qr': { titulo: 'Asistencia QR', descripcion: 'Código de asistencia y marcas de presencia del día.', nivel: 'mesa' },
+  quorum: { titulo: 'Quórum', descripcion: 'Concejales presentes, ausentes y validez del quórum.', nivel: 'concejal' },
+  'orden-del-dia': { titulo: 'Orden del Día', descripcion: 'Puntos del orden del día y su estado de tratamiento.', nivel: 'concejal' },
+  proyectos: { titulo: 'Proyectos', descripcion: 'Expedientes ingresados y su estado de votación.', nivel: 'concejal' },
+  votaciones: { titulo: 'Votaciones', descripcion: 'Detalle voto a voto de cada proyecto tratado.', nivel: 'concejal' },
+  reportes: { titulo: 'Reportes', descripcion: 'Indicadores consolidados y descarga de resultados.', nivel: 'concejal' },
+  estadisticas: { titulo: 'Estadísticas', descripcion: 'Comportamiento histórico del cuerpo y participación.', nivel: 'concejal' },
+  auditoria: { titulo: 'Auditoría', descripcion: 'Registro de acciones realizadas sobre el sistema.', nivel: 'mesa' },
+  configuracion: { titulo: 'Configuración', descripcion: 'Parámetros de funcionamiento del sistema de votación.', nivel: 'admin' }
 };
+
+function paginasPermitidas(perfil) {
+  return Object.entries(VISTAS)
+    .filter(([, vista]) => permite(perfil, vista.nivel))
+    .map(([clave]) => clave);
+}
 
 const cacheVistas = new Map();
 
@@ -1047,33 +1207,85 @@ function leerVista(nombre) {
   return cacheVistas.get(nombre);
 }
 
-function renderPagina(res, clave) {
-  const vista = VISTAS[clave];
-  const pagina = leerVista(`vistas/${clave}.html`);
-  const nav = Object.entries(VISTAS)
+// Nav filtrada: cada nivel ve sólo las páginas que tiene permitidas.
+function navPara(clave, perfil) {
+  return Object.entries(VISTAS)
+    .filter(([, item]) => permite(perfil, item.nivel))
     .map(([key, item]) => `<a class="nav-link${key === clave ? ' active' : ''}" href="/${key}">${item.titulo}</a>`)
     .join('\n        ');
+}
+
+function paginaBloqueada(clave, perfil) {
+  const vista = VISTAS[clave];
+  return `<div class="table-card">
+  <div class="table-head">
+    <h3>Acceso restringido</h3>
+    <p class="muted">La sección <strong>${vista.titulo}</strong> exige el nivel <strong>${PERFILES[vista.nivel].etiqueta}</strong> y tu cuenta tiene el nivel <strong>${PERFILES[perfil].etiqueta}</strong>.</p>
+  </div>
+  <p class="muted">Con tu nivel podés votar y consultar la sesión, los concejales, los proyectos y las votaciones. Si necesitás ver <strong>${vista.titulo.toLowerCase()}</strong>, la Presidencia puede darte el nivel desde la sección <em>Usuarios</em>.</p>
+  <div class="page-actions">
+    <a class="btn" href="/dashboard">Volver al panel</a>
+  </div>
+</div>`;
+}
+
+function renderPagina(res, clave, perfil, opciones = {}) {
+  const vista = VISTAS[clave];
+  const bloqueada = Boolean(opciones.bloqueada);
+  const cabecera = bloqueada ? 'Acceso restringido' : vista.titulo;
+  const descripcion = bloqueada ? 'Tu nivel de acceso no alcanza para ver esta sección.' : vista.descripcion;
+  const pagina = bloqueada ? paginaBloqueada(clave, perfil) : leerVista(`vistas/${clave}.html`);
   const html = leerVista('layout.html')
-    .replace('{{NAV}}', () => nav)
-    .replace('{{TITULO}}', () => `${vista.titulo} • Concejo Deliberante`)
-    .replace('{{PAGE}}', () => clave)
-    .replace('{{CABECERA}}', () => vista.titulo)
-    .replace('{{DESCRIPCION}}', () => vista.descripcion)
+    .replace('{{NAV}}', () => navPara(clave, perfil))
+    .replace('{{TITULO}}', () => `${cabecera} • Concejo Deliberante`)
+    // data-page="sin-acceso" evita que app.js intente cargar los datos de la página bloqueada.
+    .replace('{{PAGE}}', () => (bloqueada ? 'sin-acceso' : clave))
+    .replace('{{CABECERA}}', () => cabecera)
+    .replace('{{DESCRIPCION}}', () => descripcion)
     .replace('{{CONTENIDO}}', () => pagina);
+  if (bloqueada) {
+    res.status(403);
+  }
   res.setHeader('Content-Type', 'text/html; charset=utf-8');
   res.send(html);
 }
 
+/*
+ * Sesión de una página del panel. No reusa authMiddleware porque acá no tener
+ * sesión es un redirect a /login, no un 401 JSON.
+ */
 function paginaProtegida(req, res, next) {
   const token = tokenFrom(req);
   if (!token || !tokens.has(token)) {
     return res.redirect('/login');
   }
+
+  const sesion = tokens.get(token);
+  const guardado = getCouncillorById(sesion.id);
+  const usuario = guardado
+    ? { ...sesion, name: guardado.name, role: guardado.role, username: guardado.username, perfil: guardado.perfil }
+    : sesion;
+  tokens.set(token, usuario);
+
+  req.user = usuario;
+  req.perfil = normalizarPerfil(usuario.perfil, usuario.role);
+  req.token = token;
   next();
 }
 
 Object.keys(VISTAS).forEach(clave => {
-  app.get(`/${clave}`, paginaProtegida, (req, res) => renderPagina(res, clave));
+  app.get(`/${clave}`, paginaProtegida, (req, res) => {
+    const vista = VISTAS[clave];
+    if (permite(req.perfil, vista.nivel)) {
+      return renderPagina(res, clave, req.perfil);
+    }
+    audit(
+      req.user.username,
+      'Acceso denegado',
+      `/${clave} requiere ${PERFILES[vista.nivel].etiqueta} y ${req.user.username} es ${PERFILES[req.perfil].etiqueta}`
+    );
+    return renderPagina(res, clave, req.perfil, { bloqueada: true });
+  });
 });
 
 app.get('/', (req, res) => {

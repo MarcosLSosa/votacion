@@ -740,6 +740,45 @@ nav a:hover {
   color: #55627d;
 }
 
+/* Nivel de acceso: concejal < mesa < admin */
+.badge.nivel-concejal {
+  background: #eef1f8;
+  color: #55627d;
+}
+
+.badge.nivel-mesa {
+  background: rgba(47, 116, 230, 0.14);
+  color: #1c4f9c;
+}
+
+.badge.nivel-admin {
+  background: rgba(126, 74, 224, 0.16);
+  color: #5b2ea6;
+}
+
+.nivel-celula {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.nivel-selector {
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid #d8e0f0;
+  background: #fff;
+  color: #1f2b45;
+  font: inherit;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nivel-selector:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
 .btn {
   display: inline-block;
   padding: 12px 20px;
