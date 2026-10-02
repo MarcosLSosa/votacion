@@ -73,11 +73,6 @@ node tests/navegador-cdp.mjs                  # login real, 15 páginas, sin err
 
 `smoke-api.sh` verifica rutas, roles, credenciales y asistencia con `curl`; `navegador-cdp.mjs` comprueba los flujos en Chrome por DevTools Protocol (Node 22 ya trae `WebSocket`, no hace falta puppeteer). Usá una base aislada en pruebas para no tocar `data/votacion.db`.
 
-```bash
-VOTACION_DB=/tmp/votacion-test.db PORT=3199 npm start &
-APP_URL=http://localhost:3199 bash tests/smoke-api.sh
-```
-
 ## Estructura
 
 ```
