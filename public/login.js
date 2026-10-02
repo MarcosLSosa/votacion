@@ -40,8 +40,10 @@ loginForm.addEventListener('submit', async event => {
     if (!response.ok) {
       throw new Error(data.error || 'No se pudo iniciar sesión.');
     }
-    localStorage.setItem('votacion:token', data.token);
-    localStorage.setItem('votacion:user', JSON.stringify(data.user));
+    localStorage.removeItem('votacion:token');
+    localStorage.removeItem('votacion:user');
+    sessionStorage.setItem('votacion:csrf', data.csrfToken);
+    sessionStorage.setItem('votacion:user', JSON.stringify(data.user));
     window.location.href = '/dashboard';
   } catch (error) {
     loginMessage.style.color = '#d93e4a';

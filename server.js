@@ -2,13 +2,58 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const Database = require('better-sqlite3');
-const cors = require('cors');
 const crypto = require('crypto');
+const QRCode = require('qrcode');
 
 const app = express();
-app.use(cors());
-app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+app.disable('x-powered-by');
+const proxyHops = Number(process.env.TRUST_PROXY_HOPS || 0);
+if (!Number.isInteger(proxyHops) || proxyHops < 0 || proxyHops > 10) {
+  throw new Error('TRUST_PROXY_HOPS must be an integer between 0 and 10.');
+}
+app.set('trust proxy', proxyHops);
+const publicBaseUrl = process.env.PUBLIC_BASE_URL ? new URL(process.env.PUBLIC_BASE_URL) : null;
+if (process.env.NODE_ENV === 'production') {
+  if (!publicBaseUrl || publicBaseUrl.protocol !== 'https:' || publicBaseUrl.pathname !== '/' || publicBaseUrl.search || publicBaseUrl.hash || publicBaseUrl.username || publicBaseUrl.password) {
+    throw new Error('Set PUBLIC_BASE_URL to the HTTPS origin used to access the application.');
+  }
+  if (proxyHops < 1) {
+    throw new Error('Set TRUST_PROXY_HOPS to the number of trusted HTTPS proxy hops in production.');
+  }
+}
+app.use(express.json({ limit: '32kb' }));
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('Permissions-Policy', 'camera=(), microphone=(), geolocation=()');
+  res.setHeader(
+    'Content-Security-Policy',
+    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; object-src 'none'"
+  );
+  const startedAt = process.hrtime.bigint();
+  res.on('finish', () => {
+    const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+    const log = {
+      timestamp: new Date().toISOString(),
+      level: res.statusCode >= 500 ? 'error' : 'info',
+      method: req.method,
+      path: req.path,
+      status: res.statusCode,
+      durationMs: Math.round(durationMs * 100) / 100,
+      remoteAddress: req.ip
+    };
+    process.stdout.write(`${JSON.stringify(log)}\n`);
+  });
+  if (process.env.NODE_ENV === 'production' && !req.secure) {
+    return res.status(426).json({ error: 'Se requiere HTTPS. Configurá el proxy TLS y TRUST_PROXY_HOPS.' });
+  }
+  if (process.env.NODE_ENV === 'production' && req.secure) {
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+  }
+  next();
+});
+app.use(express.static(path.join(__dirname, 'public'), { dotfiles: 'deny', index: false }));
 
 const dataDir = path.join(__dirname, 'data');
 // VOTACION_DB permite aislar la base (pruebas automatizadas, demos) sin tocar data/votacion.db
@@ -19,6 +64,9 @@ if (!fs.existsSync(dbDir)) {
 }
 
 const db = new Database(dbPath);
+db.pragma('journal_mode = WAL');
+db.pragma('busy_timeout = 5000');
+db.pragma('foreign_keys = ON');
 db.exec(`
   CREATE TABLE IF NOT EXISTS councillors (
     id INTEGER PRIMARY KEY,
@@ -98,6 +146,24 @@ db.exec(`
     codigo TEXT,
     metodo TEXT,
     creado_en TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS auth_sessions (
+    token_hash TEXT PRIMARY KEY,
+    user_id INTEGER NOT NULL REFERENCES councillors(id) ON DELETE CASCADE,
+    csrf_hash TEXT NOT NULL,
+    created_at INTEGER NOT NULL,
+    last_seen_at INTEGER NOT NULL,
+    last_activity_at INTEGER NOT NULL,
+    expires_at INTEGER NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS auth_sessions_user_idx ON auth_sessions(user_id);
+  CREATE TABLE IF NOT EXISTS rate_limits (
+    scope TEXT NOT NULL,
+    key_hash TEXT NOT NULL,
+    window_started_at INTEGER NOT NULL,
+    hit_count INTEGER NOT NULL,
+    PRIMARY KEY (scope, key_hash)
   );
 `);
 
@@ -417,6 +483,19 @@ function updateSession(id, data) {
 }
 
 function seedDatabase() {
+  if (process.env.NODE_ENV === 'production') {
+    const requiredTables = ['councillors', 'projects', 'sessions', 'bloques', 'municipios', 'configuracion'];
+    const emptyTables = requiredTables.filter(table => db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count === 0);
+    const administratorExists = db.prepare('SELECT id, role, perfil FROM councillors')
+      .all()
+      .some(user => normalizarPerfil(user.perfil, user.role) === 'admin');
+    if (emptyTables.length || !administratorExists) {
+      const missing = [...emptyTables, ...(!administratorExists ? ['administrador'] : [])].join(', ');
+      throw new Error(`Production startup requires provisioned official data; refusing demo seed. Missing: ${missing}.`);
+    }
+    return;
+  }
+
   const councillorCount = db.prepare('SELECT COUNT(*) AS count FROM councillors').get().count;
   if (councillorCount === 0) {
     if (!TEST_PASSWORD && !BOOTSTRAP_PASSWORD) {
@@ -542,12 +621,19 @@ function migrarPasswordsPlanas() {
 migrarPasswordsPlanas();
 sincronizarPerfiles();
 
-let activeProjectId = 1;
-const tokens = new Map();
+let activeProjectId = Number(getConfig().active_project_id || 1);
 const SESSION_COOKIE = 'votacion_token';
+const SESSION_ABSOLUTE_MS = 8 * 60 * 60 * 1000;
+const SESSION_IDLE_MS = 30 * 60 * 1000;
+db.prepare('DELETE FROM auth_sessions WHERE expires_at <= ? OR last_activity_at <= ?')
+  .run(Date.now(), Date.now() - SESSION_IDLE_MS);
 
 function createToken() {
-  return crypto.randomBytes(16).toString('hex');
+  return crypto.randomBytes(32).toString('base64url');
+}
+
+function hashOpaqueToken(value) {
+  return crypto.createHash('sha256').update(value).digest('hex');
 }
 
 function readCookies(req) {
@@ -560,7 +646,11 @@ function readCookies(req) {
     if (index === -1) {
       return acc;
     }
-    acc[part.slice(0, index).trim()] = decodeURIComponent(part.slice(index + 1).trim());
+    try {
+      acc[part.slice(0, index).trim()] = decodeURIComponent(part.slice(index + 1).trim());
+    } catch {
+      return acc;
+    }
     return acc;
   }, {});
 }
@@ -572,6 +662,126 @@ function tokenFrom(req) {
   }
   return readCookies(req)[SESSION_COOKIE] || null;
 }
+
+function reqActivityHeader(req) {
+  return req ? req.get('x-user-activity-at') : null;
+}
+
+function findAuthSession(token, req) {
+  if (typeof token !== 'string' || !token) {
+    return null;
+  }
+  const session = db.prepare('SELECT * FROM auth_sessions WHERE token_hash = ?').get(hashOpaqueToken(token));
+  if (!session) {
+    return null;
+  }
+  const now = Date.now();
+  if (session.expires_at <= now || session.last_activity_at <= now - SESSION_IDLE_MS) {
+    db.prepare('DELETE FROM auth_sessions WHERE token_hash = ?').run(session.token_hash);
+    return null;
+  }
+  const activityAt = Number(reqActivityHeader(req));
+  if (Number.isSafeInteger(activityAt) && activityAt >= session.last_activity_at && activityAt <= now) {
+    db.prepare('UPDATE auth_sessions SET last_seen_at = ?, last_activity_at = ? WHERE token_hash = ?')
+      .run(now, activityAt, session.token_hash);
+  } else if (now - session.last_seen_at >= 60_000) {
+    db.prepare('UPDATE auth_sessions SET last_seen_at = ? WHERE token_hash = ?').run(now, session.token_hash);
+  }
+  return session;
+}
+
+function sameOrigin(req) {
+  const origin = req.get('origin');
+  const referer = req.get('referer');
+  if (!origin && !referer) {
+    return false;
+  }
+  try {
+    const actual = new URL(origin || referer);
+    const expectedOrigin = publicBaseUrl ? publicBaseUrl.origin : `${req.protocol}://${req.get('host')}`;
+    return actual.origin === expectedOrigin;
+  } catch {
+    return false;
+  }
+}
+
+function csrfProtection(req, res, next) {
+  const endpoint = req.originalUrl.split('?')[0];
+  const credentialEndpoints = ['/api/auth/login', '/api/asistencia/checkin'];
+  const credentialEndpoint = credentialEndpoints.includes(endpoint);
+  if (
+    ['GET', 'HEAD', 'OPTIONS'].includes(req.method) ||
+    (req.headers['x-auth-token'] && !credentialEndpoint)
+  ) {
+    return next();
+  }
+  if (!sameOrigin(req)) {
+    return res.status(403).json({ error: 'Origen de solicitud no permitido.' });
+  }
+  if (credentialEndpoint) {
+    return next();
+  }
+  const cookieToken = readCookies(req)[SESSION_COOKIE];
+  const session = cookieToken ? findAuthSession(cookieToken, req) : null;
+  if (!session) {
+    return next();
+  }
+  const csrfToken = req.get('x-csrf-token') || '';
+  const suppliedHash = Buffer.from(hashOpaqueToken(csrfToken), 'hex');
+  const expectedHash = Buffer.from(session.csrf_hash, 'hex');
+  if (
+    !csrfToken ||
+    suppliedHash.length !== expectedHash.length ||
+    !crypto.timingSafeEqual(suppliedHash, expectedHash)
+  ) {
+    return res.status(403).json({ error: 'Token CSRF inválido o ausente.' });
+  }
+  next();
+}
+
+function rateLimit(scope, maxHits, windowMs) {
+  let requestsSinceCleanup = 0;
+  return (req, res, next) => {
+    let secret = getConfig().rate_limit_secret;
+    if (!secret) {
+      secret = crypto.randomBytes(32).toString('hex');
+      setConfig('rate_limit_secret', secret);
+    }
+    const identity = `${req.ip || req.socket.remoteAddress || 'unknown'}`;
+    const keyHash = crypto.createHmac('sha256', secret).update(identity).digest('hex');
+    const now = Date.now();
+    const updateLimit = db.transaction(() => {
+      const existing = db.prepare('SELECT window_started_at, hit_count FROM rate_limits WHERE scope = ? AND key_hash = ?')
+        .get(scope, keyHash);
+      if (!existing || existing.window_started_at <= now - windowMs) {
+        db.prepare(`
+          INSERT INTO rate_limits (scope, key_hash, window_started_at, hit_count)
+          VALUES (?, ?, ?, 1)
+          ON CONFLICT(scope, key_hash) DO UPDATE SET window_started_at = excluded.window_started_at, hit_count = 1
+        `).run(scope, keyHash, now);
+        return { count: 1, windowStartedAt: now };
+      }
+      const count = existing.hit_count + 1;
+      db.prepare('UPDATE rate_limits SET hit_count = ? WHERE scope = ? AND key_hash = ?')
+        .run(count, scope, keyHash);
+      return { count, windowStartedAt: existing.window_started_at };
+    });
+    const result = updateLimit();
+    requestsSinceCleanup += 1;
+    if (requestsSinceCleanup >= 500) {
+      db.prepare('DELETE FROM rate_limits WHERE window_started_at < ?').run(now - windowMs * 3);
+      requestsSinceCleanup = 0;
+    }
+    if (result.count > maxHits) {
+      const retryAfter = Math.max(1, Math.ceil((result.windowStartedAt + windowMs - now) / 1000));
+      res.setHeader('Retry-After', String(retryAfter));
+      return res.status(429).json({ error: 'Demasiados intentos. Esperá antes de volver a intentar.', retryAfter });
+    }
+    next();
+  };
+}
+
+app.use('/api', csrfProtection);
 
 function audit(usuario, accion, detalle) {
   const ahora = new Date();
@@ -619,20 +829,20 @@ function registrarPresente(concejal, metodo, codigo) {
 
 function authMiddleware(req, res, next) {
   const token = tokenFrom(req);
-  if (!token || !tokens.has(token)) {
+  const sesion = findAuthSession(token, req);
+  if (!sesion) {
     return res.status(401).json({ error: 'No autorizado.' });
   }
 
-  const sesion = tokens.get(token);
-  // El nivel puede haber cambiado después del login: se releen los datos fijos de la base.
-  const guardado = getCouncillorById(sesion.id);
-  const usuario = guardado
-    ? { ...sesion, name: guardado.name, role: guardado.role, username: guardado.username, perfil: guardado.perfil }
-    : sesion;
-  tokens.set(token, usuario);
+  const usuario = getCouncillorById(sesion.user_id);
+  if (!usuario) {
+    db.prepare('DELETE FROM auth_sessions WHERE token_hash = ?').run(sesion.token_hash);
+    return res.status(401).json({ error: 'No autorizado.' });
+  }
 
   req.user = usuario;
   req.token = token;
+  req.sessionHash = sesion.token_hash;
   req.perfil = normalizarPerfil(usuario.perfil, usuario.role);
   req.nivel = nivelDe(req.perfil);
   next();
@@ -660,7 +870,14 @@ function requirePerfil(minimo) {
 }
 
 function getActiveProject() {
-  return getProject(activeProjectId);
+  let project = getProject(activeProjectId);
+  const deadline = Number(getConfig().voting_deadline_at || 0);
+  if (project && project.status === 'abierta' && deadline > 0 && Date.now() >= deadline) {
+    project = updateProject(project.id, { status: 'finalizada' });
+    setConfig('voting_deadline_at', '');
+    audit('system', 'Votación cerrada automáticamente', `${project.project} alcanzó el límite de duración configurado`);
+  }
+  return project;
 }
 
 function computeCounts(project) {
@@ -674,10 +891,13 @@ function getSessionOverview() {
     return null;
   }
   const connected = getAllCouncillors().filter(c => c.connected).length;
+  const activeSession = getActiveSession();
   return {
     ...activeProject,
     counts: computeCounts(activeProject),
-    connectedCouncillors: connected
+    connectedCouncillors: connected,
+    votingDeadline: Number(getConfig().voting_deadline_at || 0) || null,
+    activeSession: activeSession ? { id: activeSession.id, name: activeSession.name, date: activeSession.date } : null
   };
 }
 
@@ -686,7 +906,7 @@ function getActiveSession() {
   return sessions.find(session => session.active) || sessions[0] || null;
 }
 
-app.get('/api/session', (req, res) => {
+app.get('/api/session', authMiddleware, (req, res) => {
   const overview = getSessionOverview();
   if (!overview) {
     return res.status(404).json({ error: 'No hay un proyecto en votación.' });
@@ -694,14 +914,32 @@ app.get('/api/session', (req, res) => {
   res.json(overview);
 });
 
-app.get('/api/projects', (req, res) => {
+if (!getProject(activeProjectId)) {
+  activeProjectId = getAllProjects().find(project => project.status === 'abierta')?.id || getAllProjects()[0]?.id || 0;
+  setConfig('active_project_id', String(activeProjectId));
+}
+if (
+  activeProjectId &&
+  getActiveProject()?.status === 'abierta' &&
+  (!Number.isFinite(Number(getConfig().voting_deadline_at)) || Number(getConfig().voting_deadline_at) <= 0)
+) {
+  const durationMinutes = Number(getConfig().duracion_votacion);
+  if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 120) {
+    throw new Error('duracion_votacion must be an integer between 1 and 120 minutes.');
+  }
+  setConfig('voting_deadline_at', String(Date.now() + durationMinutes * 60_000));
+}
+const votingTimer = setInterval(() => getActiveProject(), 1000);
+votingTimer.unref();
+
+app.get('/api/projects', authMiddleware, (req, res) => {
   res.json(getAllProjects().map(project => ({
     ...project,
     counts: computeCounts(project)
   })));
 });
 
-app.get('/api/history', (req, res) => {
+app.get('/api/history', authMiddleware, requirePerfil('mesa'), (req, res) => {
   res.json(getAllProjects()
     .filter(project => project.status !== 'abierta')
     .map(project => ({
@@ -710,15 +948,15 @@ app.get('/api/history', (req, res) => {
     })));
 });
 
-app.get('/api/sessions', (req, res) => {
+app.get('/api/sessions', authMiddleware, requirePerfil('mesa'), (req, res) => {
   res.json(getAllSessions());
 });
 
-app.get('/api/order-of-day', (req, res) => {
+app.get('/api/order-of-day', authMiddleware, (req, res) => {
   res.json(getAllOrderOfDay());
 });
 
-app.get('/api/quorum', (req, res) => {
+app.get('/api/quorum', authMiddleware, (req, res) => {
   const councillors = getAllCouncillors();
   const activeSession = getActiveSession();
   const connected = councillors.filter(c => c.connected).length;
@@ -734,7 +972,21 @@ app.get('/api/quorum', (req, res) => {
   });
 });
 
-app.get('/api/attendance', (req, res) => {
+app.get('/api/asistencia/qr.png', authMiddleware, requirePerfil('mesa'), (req, res, next) => {
+  const qr = codigoActivo();
+  if (!qr) {
+    return res.status(404).json({ error: 'No hay sesiones registradas.' });
+  }
+  const base = publicBaseUrl ? publicBaseUrl.origin : `${req.protocol}://${req.get('host')}`;
+  const url = new URL(`/asistencia?codigo=${encodeURIComponent(qr.codigo)}`, base).href;
+  QRCode.toBuffer(url, { type: 'png', errorCorrectionLevel: 'M', margin: 2, width: 480 })
+    .then(buffer => {
+      res.type('png').setHeader('Cache-Control', 'private, no-store').send(buffer);
+    })
+    .catch(next);
+});
+
+app.get('/api/attendance', authMiddleware, (req, res) => {
   const attendance = getAllCouncillors().map(c => ({
     id: c.id,
     name: c.name,
@@ -745,7 +997,7 @@ app.get('/api/attendance', (req, res) => {
   res.json(attendance);
 });
 
-app.get('/api/reports', (req, res) => {
+app.get('/api/reports', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const projects = getAllProjects();
   const councillors = getAllCouncillors();
   const totalProjects = projects.length;
@@ -764,7 +1016,7 @@ app.get('/api/reports', (req, res) => {
   });
 });
 
-app.get('/api/stats', (req, res) => {
+app.get('/api/stats', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const projects = getAllProjects();
   const councillors = getAllCouncillors();
   const activeSession = getActiveSession();
@@ -786,7 +1038,7 @@ app.get('/api/stats', (req, res) => {
   });
 });
 
-app.get('/api/project/:id', (req, res) => {
+app.get('/api/project/:id', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const project = getProject(req.params.id);
   if (!project) {
     return res.status(404).json({ error: 'Proyecto no encontrado.' });
@@ -816,11 +1068,11 @@ function bloqueName(id) {
   return row ? row.nombre : 'Sin bloque';
 }
 
-app.get('/api/bloques', (req, res) => {
+app.get('/api/bloques', authMiddleware, requirePerfil('mesa'), (req, res) => {
   res.json(getBloques());
 });
 
-app.get('/api/municipios', (req, res) => {
+app.get('/api/municipios', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const municipios = db.prepare('SELECT * FROM municipios ORDER BY id').all();
   const total = municipios.reduce((sum, municipio) => sum + (municipio.habitantes || 0), 0);
   res.json({ municipios, totalHabitantes: total });
@@ -871,11 +1123,6 @@ app.put('/api/usuarios/:id/perfil', authMiddleware, requirePerfil('admin'), (req
   }
 
   db.prepare('UPDATE councillors SET perfil = ? WHERE id = ?').run(perfil, destino.id);
-  for (const [token, usuario] of tokens.entries()) {
-    if (usuario.id === destino.id) {
-      tokens.set(token, { ...usuario, perfil });
-    }
-  }
 
   audit(
     req.user.username,
@@ -896,16 +1143,12 @@ app.put('/api/usuarios/:id/password', authMiddleware, requirePerfil('admin'), (r
   }
 
   db.prepare('UPDATE councillors SET password = ? WHERE id = ?').run(hashPassword(password), destino.id);
-  for (const [token, usuario] of tokens.entries()) {
-    if (usuario.id === destino.id && token !== req.token) {
-      tokens.delete(token);
-    }
-  }
+  db.prepare('DELETE FROM auth_sessions WHERE user_id = ?').run(destino.id);
   audit(req.user.username, 'Credenciales actualizadas', `Se cambió la contraseña de ${destino.name} (${destino.username})`);
-  res.json({ success: true });
+  res.json({ success: true, sesionCerrada: destino.id === req.user.id });
 });
 
-app.get('/api/councillors', (req, res) => {
+app.get('/api/councillors', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const activeProject = getActiveProject();
   const activeId = activeProject ? activeProject.id : null;
   res.json(getAllCouncillors().map(({ id, name, role, connected, votes, bloqueId }) => ({
@@ -940,7 +1183,7 @@ function publicUser(user) {
   };
 }
 
-app.post('/api/auth/login', (req, res) => {
+app.post('/api/auth/login', rateLimit('login', 10, 15 * 60 * 1000), (req, res) => {
   const body = req.body || {};
   const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
   const password = typeof body.password === 'string' ? body.password : '';
@@ -955,24 +1198,30 @@ app.post('/api/auth/login', (req, res) => {
   registrarPresente(user, 'panel');
 
   const token = createToken();
-  tokens.set(token, user);
+  const csrfToken = createToken();
+  const now = Date.now();
+  db.prepare(`
+    INSERT INTO auth_sessions (token_hash, user_id, csrf_hash, created_at, last_seen_at, last_activity_at, expires_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(hashOpaqueToken(token), user.id, hashOpaqueToken(csrfToken), now, now, now, now + SESSION_ABSOLUTE_MS);
   audit(user.username, 'Inicio de sesión', `${user.name} ingresó al panel`);
 
   res.setHeader(
     'Set-Cookie',
     `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
   );
-  res.json({ token, user: publicUser(user) });
+  res.json({ token, csrfToken, user: publicUser(user) });
 });
 
 app.post('/api/auth/logout', (req, res) => {
   const token = tokenFrom(req);
-  if (token && tokens.has(token)) {
-    const usuario = tokens.get(token);
+  const sesion = findAuthSession(token, req);
+  if (sesion) {
+    const usuario = getCouncillorById(sesion.user_id);
     audit(usuario.username, 'Fin de sesión', `${usuario.name} cerró su sesión en el panel`);
-    tokens.delete(token);
+    db.prepare('DELETE FROM auth_sessions WHERE token_hash = ?').run(sesion.token_hash);
   }
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0`);
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; Path=/; HttpOnly; SameSite=Lax; Max-Age=0${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`);
   res.json({ success: true });
 });
 
@@ -1020,9 +1269,19 @@ app.post('/api/project/:id/activate', authMiddleware, requirePerfil('mesa'), (re
   if (!project) {
     return res.status(404).json({ error: 'Proyecto no encontrado.' });
   }
+  if (project.status !== 'abierta') {
+    return res.status(409).json({ error: 'Este proyecto ya está finalizado y no se puede reabrir desde la votación.' });
+  }
+  const durationMinutes = Number(getConfig().duracion_votacion);
+  if (!Number.isInteger(durationMinutes) || durationMinutes < 1 || durationMinutes > 120) {
+    return res.status(500).json({ error: 'La duración configurada debe ser un número entero entre 1 y 120 minutos.' });
+  }
   activeProjectId = project.id;
+  setConfig('active_project_id', String(project.id));
+  const votingDeadline = Date.now() + durationMinutes * 60_000;
+  setConfig('voting_deadline_at', String(votingDeadline));
   audit(req.user.username, 'Proyecto activado', `${project.project} pasó a ser el proyecto en votación`);
-  res.json({ activeProjectId });
+  res.json({ activeProjectId, votingDeadline });
 });
 
 app.post('/api/sessions/:id/activate', authMiddleware, requirePerfil('mesa'), (req, res) => {
@@ -1036,7 +1295,7 @@ app.post('/api/sessions/:id/activate', authMiddleware, requirePerfil('mesa'), (r
   res.json({ activeSessionId: session.id });
 });
 
-app.get('/api/votaciones', (req, res) => {
+app.get('/api/votaciones', authMiddleware, (req, res) => {
   const councillors = getAllCouncillors();
   const projects = getAllProjects();
   res.json(projects.map(project => {
@@ -1056,10 +1315,73 @@ app.get('/api/votaciones', (req, res) => {
       type: project.type,
       status: project.status,
       startedAtFull: project.startedAtFull,
+      votingDeadline: Number(getConfig().voting_deadline_at || 0) || null,
       counts: computeCounts(project),
       detalle
     };
   }));
+});
+
+function csvCell(value) {
+  const raw = String(value ?? '');
+  const protectedValue = /^[\t\r ]*[=+\-@]/.test(raw) ? `'${raw}` : raw;
+  return `"${protectedValue.replace(/"/g, '""')}"`;
+}
+
+function sendCsv(res, filename, rows) {
+  const content = `\uFEFF${rows.map(row => row.map(csvCell).join(',')).join('\r\n')}`;
+  res.set({
+    'Content-Type': 'text/csv; charset=utf-8',
+    'Content-Disposition': `attachment; filename="${filename}"`,
+    'Cache-Control': 'private, no-store'
+  }).send(content);
+}
+
+app.get('/api/export/votaciones.csv', authMiddleware, requirePerfil('mesa'), (req, res) => {
+  const projects = getAllProjects();
+  const rows = [[
+    'Expediente', 'Título', 'Tipo', 'Estado', 'Resultado',
+    'Afirmativo', 'Negativo', 'Abstención', 'Pendientes', 'Fecha'
+  ]];
+  projects.forEach(project => {
+    const counts = computeCounts(project);
+    rows.push([
+      project.project,
+      project.title,
+      project.type,
+      project.status,
+      getResult(project).label,
+      counts.afirmativo,
+      counts.negativo,
+      counts.abstencion,
+      counts.pendientes,
+      project.startedAtFull
+    ]);
+  });
+  sendCsv(res, 'votaciones.csv', rows);
+});
+
+app.get('/api/export/asistencia.csv', authMiddleware, requirePerfil('mesa'), (req, res) => {
+  const rows = db.prepare(`
+    SELECT s.name AS sesion, s.date AS fechaSesion, a.creado_en AS fechaRegistro,
+           c.name AS concejal, c.username, a.metodo, a.codigo
+    FROM asistencias a
+    LEFT JOIN sessions s ON s.id = a.sesion_id
+    LEFT JOIN councillors c ON c.id = a.concejal_id
+    ORDER BY a.id DESC
+  `).all();
+  sendCsv(res, 'asistencia.csv', [
+    ['Sesión', 'Fecha de sesión', 'Fecha de registro', 'Concejal', 'Usuario', 'Método', 'Código'],
+    ...rows.map(row => [row.sesion, row.fechaSesion, row.fechaRegistro, row.concejal, row.username, row.metodo, row.codigo])
+  ]);
+});
+
+app.get('/api/export/auditoria.csv', authMiddleware, requirePerfil('mesa'), (req, res) => {
+  const rows = db.prepare('SELECT timestamp, usuario, accion, detalle FROM auditoria ORDER BY id DESC LIMIT 10000').all();
+  sendCsv(res, 'auditoria.csv', [
+    ['Fecha y hora', 'Usuario', 'Acción', 'Detalle'],
+    ...rows.map(row => [row.timestamp, row.usuario, row.accion, row.detalle])
+  ]);
 });
 
 app.get('/api/configuracion', authMiddleware, requirePerfil('admin'), (req, res) => {
@@ -1073,6 +1395,10 @@ app.put('/api/configuracion', authMiddleware, requirePerfil('admin'), (req, res)
   const cambios = Object.entries(req.body || {}).filter(([clave]) => permitidas.includes(clave));
   if (cambios.length === 0) {
     return res.status(400).json({ error: 'No hay valores válidos para guardar.' });
+  }
+  const duration = cambios.find(([key]) => key === 'duracion_votacion');
+  if (duration && (!Number.isInteger(Number(duration[1])) || Number(duration[1]) < 1 || Number(duration[1]) > 120)) {
+    return res.status(400).json({ error: 'La duración de votación debe ser un número entero entre 1 y 120 minutos.' });
   }
   cambios.forEach(([clave, valor]) => setConfig(clave, valor));
   audit(req.user.username, 'Configuración', cambios.map(([clave]) => clave).join(', '));
@@ -1106,6 +1432,7 @@ app.get('/api/asistencia/qr', authMiddleware, requirePerfil('mesa'), (req, res) 
   res.json({
     codigo: qr.codigo,
     url: `/asistencia?codigo=${qr.codigo}`,
+    imageUrl: '/api/asistencia/qr.png',
     sesion: qr.sesion,
     registrados,
     total: councillors.length,
@@ -1124,7 +1451,7 @@ app.get('/api/asistencia', authMiddleware, requirePerfil('mesa'), (req, res) => 
   res.json(rows);
 });
 
-app.post('/api/asistencia/checkin', (req, res) => {
+app.post('/api/asistencia/checkin', rateLimit('attendance-checkin', 20, 15 * 60 * 1000), (req, res) => {
   const { codigo, username, password } = req.body || {};
   const checkin = codigoActivo();
   if (!checkin) {
@@ -1152,7 +1479,7 @@ app.post('/api/asistencia/checkin', (req, res) => {
   res.json({ success: true, name: concejal.name });
 });
 
-app.get('/api/overview', (req, res) => {
+app.get('/api/overview', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const activeProject = getActiveProject();
   if (!activeProject) {
     return res.status(404).json({ error: 'No hay un proyecto en votación.' });
@@ -1203,13 +1530,14 @@ function marcasDePresencia(sesionId) {
   return rows.reduce((acc, row) => acc.set(row.concejalId, row), new Map());
 }
 
-// Concejales con token vivo en memoria (verdadero "en línea").
+// Concejales con sesión persistida y actividad reciente (verdadero "en línea").
 function concejalesEnLinea() {
-  const ids = new Set();
-  for (const usuario of tokens.values()) {
-    ids.add(usuario.id);
-  }
-  return ids;
+  const now = Date.now();
+  return new Set(db.prepare(`
+    SELECT DISTINCT user_id
+    FROM auth_sessions
+    WHERE expires_at > ? AND last_activity_at > ?
+  `).all(now, now - SESSION_IDLE_MS).map(session => session.user_id));
 }
 
 /*
@@ -1218,6 +1546,7 @@ function concejalesEnLinea() {
  * + token vivo) que las APIs históricas no exponían juntas.
  */
 app.get('/api/screen', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
   const project = getActiveProject();
   const session = getActiveSession();
   const councillors = getAllCouncillors();
@@ -1369,16 +1698,16 @@ function renderPagina(res, clave, perfil, opciones = {}) {
  */
 function paginaProtegida(req, res, next) {
   const token = tokenFrom(req);
-  if (!token || !tokens.has(token)) {
+  const sesion = findAuthSession(token, req);
+  if (!sesion) {
     return res.redirect('/login');
   }
 
-  const sesion = tokens.get(token);
-  const guardado = getCouncillorById(sesion.id);
-  const usuario = guardado
-    ? { ...sesion, name: guardado.name, role: guardado.role, username: guardado.username, perfil: guardado.perfil }
-    : sesion;
-  tokens.set(token, usuario);
+  const usuario = getCouncillorById(sesion.user_id);
+  if (!usuario) {
+    db.prepare('DELETE FROM auth_sessions WHERE token_hash = ?').run(sesion.token_hash);
+    return res.redirect('/login');
+  }
 
   req.user = usuario;
   req.perfil = normalizarPerfil(usuario.perfil, usuario.role);
@@ -1407,7 +1736,7 @@ app.get('/', (req, res) => {
 
 app.get('/login', (req, res) => {
   const token = tokenFrom(req);
-  if (token && tokens.has(token)) {
+  if (findAuthSession(token, req)) {
     return res.redirect('/dashboard');
   }
   res.sendFile(path.join(__dirname, 'public', 'login.html'));
@@ -1422,10 +1751,52 @@ app.get('/screen', (req, res) => {
 });
 
 app.get('*', (req, res) => {
+  if (req.path.startsWith('/api/')) {
+    return res.status(404).json({ error: 'Endpoint no encontrado.' });
+  }
   res.redirect('/dashboard');
 });
 
-const port = process.env.PORT || 3000;
-app.listen(port, () => {
-  console.log(`Servidor de votación corriendo en http://localhost:${port}`);
+app.use((error, req, res, next) => {
+  process.stderr.write(`${JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'error',
+    method: req.method,
+    path: req.path,
+    error: error.message,
+    code: error.code || null
+  })}\n`);
+  if (res.headersSent) {
+    return next(error);
+  }
+  const status = Number.isInteger(error.status) && error.status >= 400 && error.status < 500 ? error.status : 500;
+  res.status(status).json({ error: status === 500 ? 'Error interno del servidor.' : error.message });
 });
+
+const port = process.env.PORT || 3000;
+const server = app.listen(port, () => {
+  process.stdout.write(`${JSON.stringify({
+    timestamp: new Date().toISOString(),
+    level: 'info',
+    event: 'server_started',
+    port: server.address().port,
+    environment: process.env.NODE_ENV || 'development',
+    publicBaseUrl: publicBaseUrl ? publicBaseUrl.origin : null
+  })}\n`);
+});
+server.requestTimeout = 30_000;
+server.headersTimeout = 35_000;
+
+function shutdown(signal) {
+  process.stdout.write(`${JSON.stringify({ timestamp: new Date().toISOString(), level: 'info', event: 'server_shutdown', signal })}\n`);
+  clearInterval(votingTimer);
+  server.close(() => {
+    db.close();
+    process.exit(0);
+  });
+  const forcedExit = setTimeout(() => process.exit(1), 10_000);
+  forcedExit.unref();
+}
+
+process.on('SIGINT', () => shutdown('SIGINT'));
+process.on('SIGTERM', () => shutdown('SIGTERM'));

@@ -2,14 +2,14 @@
 
 Servidor: `server.js` (Express 4). Todo el tráfico es JSON salvo las páginas HTML.
 
-**Autenticación.** Las rutas marcadas 🔒 exigen sesión. La sesión se manda de dos formas:
+**Autenticación.** Las rutas marcadas 🔒 exigen sesión.
 
-- Cookie `votacion_token` (HttpOnly, SameSite=Lax, `Max-Age=28800` = 8 h), que coloca `POST /api/auth/login`.
-- Header `x-auth-token: <token>` (útil para probar con curl o desde otro cliente).
+- Cookie `votacion_token` (HttpOnly, SameSite=Lax, ocho horas absolutas; `Secure` en producción).
+- Header `x-auth-token: <token>` sólo para clientes API que administren tokens explícitamente (útil en pruebas).
 
-Los tokens se guardan en un `Map` en memoria: al reiniciar el servidor todas las sesiones caen.
+Las sesiones se guardan en SQLite; sobreviven reinicios y vencen tras 30 minutos sin actividad o 8 horas absolutas. Para mutaciones autorizadas por cookie, enviá `Origin` del mismo origen y `X-CSRF-Token` recibido en el login. Login y check-in también validan el origen, pero no exigen token CSRF porque validan sus propias credenciales; los clientes que usan `x-auth-token` no necesitan token CSRF.
 
-**Errores.** Siempre `{ "error": "mensaje legible" }` con estado 400 (datos inválidos), 401 (sin sesión), 404 (no existe) o 409 (conflicto, por ejemplo voto duplicado).
+**Errores.** `{ "error": "mensaje legible" }`: 400 (datos inválidos), 401 (sin sesión/credenciales), 403 (origen, CSRF o nivel), 404 (no existe), 409 (conflicto), 429 (límite de intentos) y 426 (producción requiere HTTPS confiable).
 
 ---
 
@@ -19,16 +19,18 @@ Los tokens se guardan en un `Map` en memoria: al reiniciar el servidor todas las
 ```bash
 curl -i -X POST http://localhost:3000/api/auth/login \
   -H 'Content-Type: application/json' \
+  -H 'Origin: http://localhost:3000' \
   -d '{"username":"sofia","password":"<VOTACION_BOOTSTRAP_PASSWORD>"}'
 ```
 - Body: `username`, `password`.
-- 200 → `{ "token": "…", "user": { "id": 1, "name": "Sofía Pérez", "role": "Presidenta", "voted": true, "vote": "afirmativo" } }` + `Set-Cookie`.
+- 200 → `{ "token": "…", "csrfToken": "…", "user": { "id": 1, "name": "Sofía Pérez", "role": "Presidenta", "voted": true, "vote": "afirmativo" } }` + cookie HttpOnly. Los clientes web usan la cookie y guardan el token CSRF en `sessionStorage`, nunca el token de sesión en `localStorage`.
 - 401 → `Usuario o contraseña incorrectos.` (queda un registro `Intento fallido` en auditoría).
-- Efectos: marca `connected = true` en el concejal, crea token, auditoría `Inicio de sesión`.
-- En `NODE_ENV=production`, la cookie incluye `Secure`; serví la aplicación únicamente por HTTPS.
+- 403 si falta `Origin` o no coincide con el origen de la aplicación; 429 tras 10 intentos desde una IP en 15 minutos.
+- Efectos: marca `connected = true` en el concejal, persiste una sesión revocable, crea token CSRF y registra `Inicio de sesión`.
+- En `NODE_ENV=production`, la cookie incluye `Secure`; la aplicación requiere HTTPS detrás del proxy confiable configurado.
 
 ### `POST /api/auth/logout` 🔒
-Elimina el token y la cookie. 200 → `{ "success": true }`. Auditoría `Fin de sesión`.
+Requiere `Origin` y `X-CSRF-Token` si usa cookie; elimina la sesión persistente y limpia la cookie. 200 → `{ "success": true }`. Auditoría `Fin de sesión`.
 
 ### `GET /api/auth/me` 🔒
 200 → `{ "user": { "id", "name", "role", "voted", "vote" } }` (estado del concejal sobre el proyecto activo).
@@ -70,7 +72,7 @@ curl -X POST http://localhost:3000/api/vote \
 - Efectos: suma el conteo en `projects.counts`, guarda `votes[projectId]` en `councillors`, auditoría `Voto emitido`.
 
 ### `POST /api/project/:id/activate` 🔒
-Pone ese proyecto como el proyecto en votación (en memoria). 200 → `{ "activeProjectId": 2 }`. Auditoría `Proyecto activado`.
+Pone un proyecto abierto como el proyecto en votación y persiste el cierre automático según `duracion_votacion` (1–120 minutos). 200 → `{ "activeProjectId": 1, "votingDeadline": 1790964000000 }`. El id y plazo sobreviven reinicios; un proyecto finalizado responde 409 y no puede reabrirse desde este endpoint. Al vencer el plazo, el sistema cierra la votación y registra auditoría.
 
 ### `POST /api/sessions/:id/activate` 🔒
 Activa la sesión en la tabla `sessions` (desactiva las demás; si estaba `cerrada` pasa a `abierta`). 200 → `{ "activeSessionId": 2 }`. Auditoría `Sesión activada`.
@@ -116,16 +118,17 @@ Payload único que alimenta la pantalla pública `/screen` en un solo pedido cad
                  "porcentaje": 83, "quorumAlcanzado": true },
   "proyecto": { "project": "…", "title": "…", "description": "…", "type": "…",
                 "status": "abierta", "sessionType": "…", "startedAtFull": "…",
+                "votingDeadline": 1790964000000,
                 "counts": { "afirmativo": 8, "negativo": 3, "abstencion": 1, "pendientes": 0 },
                 "total": 12, "emitidos": 12, "participacion": 100, "mayoria": true,
                 "resultado": { "label": "APROBADO", "color": "green" } },
   "serverAt": "19:35:12"
 }
 ```
-- `presente` = está conectado **o** tiene marca en `asistencias` (login por panel o QR); `enLinea` = tiene token vivo en memoria.
+- `presente` = está conectado **o** tiene marca en `asistencias` (login por panel o QR); `enLinea` = tiene una sesión persistente dentro de su vencimiento por inactividad.
 - `sesion` y `proyecto` pueden ser `null` (sesión cerrada / sin proyecto en votación): `/screen` muestra un aviso en vez de romperse.
 - `serverAt` y el reloj de la pantalla salen en formato 24 h (`hour12: false`) para que en el proyector no haya ambigüedad a.m./p.m.
-- `/screen` sigue teniendo plan B: si este endpoint no existe (servidor viejo sin reiniciar), reconstruye el mismo payload con `/api/overview` + `/api/councillors` + `/api/sessions`.
+- Este endpoint es público y deliberadamente contiene sólo los datos necesarios para proyectar resultados y asistencia; el resto de APIs de lectura exige autenticación y nivel.
 
 ### `GET /api/asistencia/qr` 🔒
 Devuelve (y genera si no existe) el código de la sesión activa:
@@ -135,6 +138,9 @@ Devuelve (y genera si no existe) el código de la sesión activa:
 ```
 El código vive en la tabla `configuracion` (`qr_codigo` + `qr_sesion`) y cambia cuando cambia la sesión activa.
 
+### `GET /api/asistencia/qr.png` 🔒
+Genera un PNG escaneable que enlaza al formulario de la sesión activa. Requiere nivel Mesa; envía `Cache-Control: private, no-store`. En producción el enlace se construye desde `PUBLIC_BASE_URL`.
+
 ### `GET /api/asistencia` 🔒
 Últimas 50 marcas: `{ id, creadoEn, metodo, codigo, concejalId, name, role }`.
 
@@ -142,11 +148,13 @@ El código vive en la tabla `configuracion` (`qr_codigo` + `qr_sesion`) y cambia
 ```bash
 curl -X POST http://localhost:3000/api/asistencia/checkin \
   -H 'Content-Type: application/json' \
+  -H 'Origin: https://votaciones.ejemplo.gob.ar' \
   -d '{"codigo":"80D7AF7D","username":"marta","password":"<clave-personal>"}'
 ```
 - 200 → `{ "success": true, "name": "Marta Silva" }`.
 - 400 código inválido; 401 credenciales incompletas/incorrectas; 404 si no hay sesión disponible; 409 si ya registró asistencia.
 - El código debe corresponder al QR de la sesión activa; un código vencido se rechaza.
+- Requiere encabezado `Origin` del mismo origen; 403 para origen ajeno y 429 tras 20 intentos por IP en 15 minutos.
 - Efectos: verifica usuario y contraseña, marca `connected = true`, inserta una sola asistencia y registra auditoría `Asistencia QR`.
 
 ### `PUT /api/usuarios/:id/password` 🔒 (Administración)
@@ -191,10 +199,16 @@ Detalle voto a voto por proyecto:
 ### `PUT /api/configuracion` 🔒
 Sólo se aceptan `municipio_sede`, `mayoria`, `duracion_votacion`, `pantalla_publica`, `notificaciones`; el resto se descarta, y si no queda ninguna clave válida responde 400. 200 → `{ "config": { … } }`. Auditoría `Configuración` con las claves modificadas.
 
+### Exportaciones CSV 🔒 (Mesa)
+
+- `GET /api/export/votaciones.csv`: resumen y conteos de cada expediente.
+- `GET /api/export/asistencia.csv`: sesión, fechas, concejal, usuario, método y código de asistencia.
+- `GET /api/export/auditoria.csv`: hasta 10.000 eventos recientes.
+
+Todas responden como descarga `text/csv; charset=utf-8` con `Cache-Control: private, no-store`. Los campos se entrecomillan y escapan; valores que podrían iniciar fórmulas de hoja de cálculo llevan prefijo de texto. Tratalas como información institucional restringida.
+
 ---
 
-## Rutas sin sesión
+## Superficie pública
 
-`/api/session`, `/api/projects`, `/api/history`, `/api/project/:id`, `/api/sessions`, `/api/order-of-day`, `/api/quorum`, `/api/attendance`, `/api/reports`, `/api/stats`, `/api/votaciones`, `/api/overview`, `/api/screen`, `/api/usuarios`, `/api/councillors`, `/api/bloques` y `/api/municipios`.
-
-Son de lectura (o de marcado de presencia) y están pensadas para la pantalla pública y la página `/asistencia`. Todo lo que escribe datos de administración o revela registro fino exige sesión. Ver limitaciones en `docs/ARQUITECTURA.md`.
+Las únicas APIs sin sesión son `POST /api/auth/login` (limitado por IP), `POST /api/asistencia/checkin` (credenciales, código de sesión, mismo origen y límite por IP) y `GET /api/screen` (payload mínimo para proyección). El PNG QR y los CSV no son públicos. Todas las demás APIs —incluidas consultas— requieren sesión y, según la operación, el nivel correspondiente. `GET /api/overview`, por ejemplo, es sólo para Mesa; la pantalla pública usa exclusivamente `/api/screen`.

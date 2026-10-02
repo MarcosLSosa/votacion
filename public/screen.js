@@ -34,71 +34,8 @@ async function leerJson(url) {
   }
 }
 
-/*
- * Plan B: si el server que atiende es anterior a GET /api/screen (una instancia
- * vieja sin reiniciar), se reconstruye el mismo payload con las APIs públicas.
- */
-async function datosDeReserva() {
-  const [overview, councillors, sessions] = await Promise.all([
-    leerJson('/api/overview'),
-    leerJson('/api/councillors'),
-    leerJson('/api/sessions')
-  ]);
-  if (!overview || !Array.isArray(councillors)) {
-    return null;
-  }
-  const total = councillors.length;
-  const presentes = councillors.filter(c => c.connected).length;
-  const counts = overview.counts || {};
-  const emitidos = (counts.afirmativo || 0) + (counts.negativo || 0) + (counts.abstencion || 0);
-  const session = (sessions || []).find(s => s.active) || (sessions || [])[0] || null;
-  return {
-    sesion: session ? { id: session.id, nombre: session.name, fecha: session.date, requerido: session.quorumRequired } : null,
-    concejales: councillors.map(c => ({
-      id: c.id,
-      name: c.name,
-      role: c.role,
-      iniciales: iniciales(c.name),
-      bloque: c.bloque || 'Sin bloque',
-      bloqueSigla: '—',
-      bloqueColor: '#5b6b8c',
-      conectado: Boolean(c.connected),
-      enLinea: false,
-      presente: Boolean(c.connected),
-      marca: null,
-      metodo: null,
-      voto: c.vote || null
-    })),
-    presencia: {
-      total,
-      presentes,
-      ausentes: total - presentes,
-      enLinea: 0,
-      porcentaje: total ? Math.round((presentes / total) * 100) : 0,
-      quorumAlcanzado: presentes >= (session ? session.quorumRequired : Math.ceil(total / 2))
-    },
-    proyecto: {
-      project: overview.project,
-      title: overview.title,
-      description: overview.description,
-      type: 'Expediente',
-      status: overview.status,
-      sessionType: overview.sessionType,
-      startedAtFull: overview.startedAtFull,
-      counts,
-      total,
-      emitidos,
-      participacion: total ? Math.round((emitidos / total) * 100) : 0,
-      mayoria: (counts.afirmativo || 0) > (counts.negativo || 0),
-      resultado: overview.result
-    },
-    serverAt: null
-  };
-}
-
 async function obtenerDatos() {
-  const datos = await leerJson('/api/screen');
-  return datos || datosDeReserva();
+  return leerJson('/api/screen');
 }
 
 function animarNumero(nodo, destino) {
@@ -332,4 +269,3 @@ actualizarReloj();
 setInterval(actualizarReloj, 1000);
 refrescar();
 setInterval(refrescar, 3000);
-

@@ -4,7 +4,7 @@
 
 Abrí `http://localhost:3000` → te manda a `/login`. Ingresá con las credenciales individuales que te asignó la administración del Concejo. La base inicial contiene datos ficticios sólo para desarrollo; no uses esas cuentas para una sesión real.
 
-La sesión dura 8 horas o hasta que cierres la sesión con el botón **Salir** de la tarjeta del perfil. Si el servidor se reinicia, hay que volver a entrar.
+La sesión se conserva si se reinicia el servidor y vence tras **30 minutos sin actividad** o **8 horas** desde el ingreso. El botón **Salir** de la tarjeta del perfil la cierra inmediatamente. Las actualizaciones automáticas de la pantalla no cuentan como actividad.
 
 Los concejales sólo tienen en su menú las cuatro vistas de uso habitual: **Votación en curso, Orden del Día, Quórum y Votaciones**. Las páginas de consulta ampliada requieren Mesa; Usuarios y Configuración requieren Administración.
 
@@ -12,20 +12,20 @@ Los concejales sólo tienen en su menú las cuatro vistas de uso habitual: **Vot
 
 | URL | Página | Para qué sirve |
 | --- | --- | --- |
-| `/dashboard` | Votación en curso | Proyecto activo, contadores en vivo, concejales conectados y los botones **AFIRMATIVO / NEGATIVO / ABSTENCIÓN**. Abajo, la lista de proyectos con el botón **Activar** para pasarlos a votación. |
+| `/dashboard` | Votación en curso | Proyecto activo, contadores en vivo, tiempo restante, concejales conectados y los botones **AFIRMATIVO / NEGATIVO / ABSTENCIÓN**. Abajo, la lista de proyectos abiertos con **Activar** para iniciar la votación. |
 | `/usuarios` | Usuarios | Alta vista del personal: usuario, email derivado, bloque, estado y votos emitidos. KPIs de total/activos/inactivos. |
 | `/concejales` | Concejales | Cuerpo completo con rol, bloque, presencia y voto sobre el proyecto activo. |
 | `/bloques` | Bloques | Bloques con sigla, color, cantidad de miembros y chips con los nombres; KPIs de miembros y presentes. |
 | `/municipios` | Municipios | Municipios del distrito, habitantes y porcentaje sobre el total. |
 | `/sesiones` | Sesiones | Sesiones convocadas, estado, quórum requerido y **Activar** para tomar una como activa. |
-| `/asistencia-qr` | Asistencia QR | Código de la sesión activa, link para compartirlo, y las últimas marcas de presencia. Botón **Copiar link**. |
+| `/asistencia-qr` | Asistencia QR | Código e imagen QR de la sesión activa, link para compartirlo y las últimas marcas de presencia. Permite descargar/imprimir el QR y copiar su link. |
 | `/quorum` | Quórum | Presentes, ausentes, quórum exigido y si está alcanzado; tabla por concejal. |
 | `/orden-del-dia` | Orden del Día | Puntos del día con su estado y acceso rápido para activar el proyecto relacionado. |
 | `/proyectos` | Proyectos | Expedientes ingresados, tipo, autor y estado de votación. |
 | `/votaciones` | Votaciones | Detalle voto a voto por proyecto: quién votó qué y quiénes están pendientes. |
-| `/reportes` | Reportes | Totales de proyectos, aprobados/rechazados y participación; tabla de resultados. |
+| `/reportes` | Reportes | Totales de proyectos, aprobados/rechazados y participación; tabla de resultados y descarga CSV de votaciones. |
 | `/estadisticas` | Estadísticas | Votos históricos, tasa de participación y barras por tipo de voto. |
-| `/auditoria` | Auditoría | Bitácora de acciones (login, votos, cambios de configuración, asistencias). |
+| `/auditoria` | Auditoría | Bitácora de acciones (login, votos, cambios de configuración, asistencias) y descarga CSV. |
 | `/configuracion` | Configuración | Municipio sede, mayoría exigida, duración de votación, pantalla pública y notificaciones. |
 
 Todas las páginas se refrescan solas cada 5 segundos; no hace falta recargar.
@@ -34,13 +34,13 @@ Todas las páginas se refrescan solas cada 5 segundos; no hace falta recargar.
 
 1. Entrá con tu usuario y andá a `/dashboard`.
 2. Si todavía no votaste el proyecto activo, el cartel dice **Selecciona una opción para votar**; tocá uno de los tres botones.
-3. El conteo sube y el cartel pasa a **Ya emitiste tu voto: …**. Un segundo intento devuelve `Ya emitiste tu voto en esta ordenanza` (HTTP 409): el voto es único por proyecto.
+3. El conteo sube y el cartel pasa a **Ya emitiste tu voto: …**. Un segundo intento devuelve `Ya emitiste tu voto en esta ordenanza` (HTTP 409): el voto es único por proyecto. La duración se configura en `/configuracion` (1–120 minutos); al vencer, la votación se cierra sola y queda registrada en auditoría.
 4. En `/votaciones` se ve el detalle de cada concejal, y en `/quorum` quién está presente.
 5. Para cambiar de tema, usá **Activar** en `/dashboard`, `/orden-del-dia` o `/sesiones`.
 
 ## Asistencia con QR
 
-1. En `/asistencia-qr` está el código de la sesión activa (por ejemplo `80D7AF7D`) y el link `/asistencia?codigo=80D7AF7D`. Ese link es el que va en el cartel o en el QR impreso.
+1. En `/asistencia-qr` están el código, la imagen QR y el link `/asistencia?codigo=80D7AF7D`. Descargá o imprimí la imagen; al cambiar la sesión activa se genera un código nuevo y hay que actualizar el cartel.
 2. El concejal abre el link desde su celular, escribe su usuario y contraseña individual, y toca **Marcar presencia**. No necesita iniciar sesión en el panel.
 3. Si el código coincide y las credenciales son válidas, aparece `Listo, <Nombre>: tu presencia quedó registrada`, el concejal pasa a **conectado** y suma para el quórum. Códigos vencidos, credenciales incorrectas y marcas duplicadas se rechazan.
 4. En `/asistencia-qr` se ve la marca con hora y método, y la lista de ausentes.
@@ -48,7 +48,7 @@ Todas las páginas se refrescan solas cada 5 segundos; no hace falta recargar.
 
 ## Gestión de contraseñas
 
-La cuenta inicial de Administración (`sofia`) recibe la contraseña definida en `VOTACION_BOOTSTRAP_PASSWORD` durante la primera inicialización o la migración de una base anterior. Desde **Usuarios → Cambiar clave**, Administración asigna una contraseña individual (mínimo 12 caracteres) a cada integrante. Las contraseñas no se pueden consultar; asignar una nueva invalida las sesiones abiertas de esa cuenta.
+En la semilla ficticia de desarrollo, la cuenta `sofia` recibe `VOTACION_BOOTSTRAP_PASSWORD`; durante la migración de una base antigua esa variable rota las claves legadas según la política documentada. Producción no crea esa cuenta ni usuarios de ejemplo: requiere una base oficial provisionada con contraseñas scrypt y un Administrador. Desde **Usuarios → Cambiar clave**, Administración puede asignar una contraseña individual (mínimo 12 caracteres) a cada integrante. Las contraseñas no se pueden consultar; asignar una nueva invalida las sesiones abiertas de esa cuenta.
 
 ## Pantalla pública
 
@@ -56,7 +56,9 @@ La cuenta inicial de Administración (`sofia`) recibe la contraseña definida en
 
 ## Configuración
 
-En `/configuracion` se guardan municipio sede, mayoría exigida, duración de votación, pantalla pública y notificaciones. Todo queda en la tabla `configuracion` y se registra en auditoría. Por ahora `duracion_votacion`, `pantalla_publica` y `notificaciones` son datos de configuración que **no** disparan comportamiento: cerrar la votación sigue siendo manual.
+En `/configuracion` se guardan municipio sede, mayoría exigida, duración de votación, pantalla pública y notificaciones. Todo queda en la tabla `configuracion` y se registra en auditoría.
+
+La duración sí determina el cierre automático de cada votación (de 1 a 120 minutos) desde su activación. Los datos de pantalla pública y notificaciones se guardan para configuración, pero todavía no bloquean ni alteran esas funciones. Mesa puede descargar CSV de resultados, asistencias y auditoría desde sus respectivas pantallas; los archivos contienen datos operativos y deben compartirse sólo con personal autorizado.
 
 ## Imprimir
 

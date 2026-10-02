@@ -5,11 +5,21 @@
 set -uo pipefail
 
 APP_URL="${APP_URL:-http://localhost:3000}"
+if [[ -z "${VOTACION_DB:-}" ]]; then
+  echo "Set VOTACION_DB to an isolated test database before running this write-enabled suite." >&2
+  exit 2
+fi
 USUARIO="${USUARIO:-sofia}"
 CLAVE="${CLAVE:-${VOTACION_TEST_PASSWORD:-Prueba-segura-2026}}"
 JAR="$(mktemp)"
+JAR_FILES=("$JAR")
 FALLOS=0
 PASOS=0
+
+limpiar_temporales() {
+  rm -f -- "${JAR_FILES[@]}"
+}
+trap limpiar_temporales EXIT
 
 paso() { # descripcion obtenido esperado
   PASOS=$((PASOS + 1))
@@ -51,15 +61,16 @@ sin_contenido() { # url texto_no_esperado [jar]
 }
 
 token_de() { # usuario clave -> token
-  curl -s -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' \
+  curl -s -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' -H "Origin: $APP_URL" \
     -d "{\"username\":\"$1\",\"password\":\"$2\"}" | grep -o '"token":"[^"]*"' | cut -d'"' -f4
 }
 
 jar_de() { # usuario clave -> archivo de cookies
   local jar; jar=$(mktemp)
-  curl -s -o /dev/null -c "$jar" -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' \
+  JAR_FILES+=("$jar")
+  curl -s -o /dev/null -c "$jar" -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' -H "Origin: $APP_URL" \
     -d "{\"username\":\"$1\",\"password\":\"$2\"}"
-  echo "$jar"
+  JAR_ULTIMO="$jar"
 }
 
 PAGINAS=(/dashboard /usuarios /concejales /bloques /municipios /sesiones /asistencia-qr /quorum /orden-del-dia /proyectos /votaciones /reportes /estadisticas /auditoria /configuracion)
@@ -86,17 +97,22 @@ for p in "${PAGINAS[@]}"; do
 done
 
 echo "== 3. Login =="
-login=$(curl -s -c "$JAR" -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"$USUARIO\",\"password\":\"$CLAVE\"}")
+login=$(curl -s -c "$JAR" -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' -H "Origin: $APP_URL" -d "{\"username\":\"$USUARIO\",\"password\":\"$CLAVE\"}")
 PASOS=$((PASOS + 1))
-if grep -q '"token"' <<<"$login"; then
-  printf '  ok    %-48s devolvio token y cookie\n' 'POST /api/auth/login'
+if grep -q '"token"' <<<"$login" && grep -q '"csrfToken"' <<<"$login"; then
+  printf '  ok    %-48s devolvio cookie, token CLI y token CSRF\n' 'POST /api/auth/login'
 else
   printf '  FALLA %-48s %s\n' 'POST /api/auth/login' "${login:0:120}"
   FALLOS=$((FALLOS + 1))
 fi
 TOKEN=$(grep -o '"token":"[^"]*"' <<<"$login" | cut -d'"' -f4)
+CSRF=$(grep -o '"csrfToken":"[^"]*"' <<<"$login" | cut -d'"' -f4)
 AUTH=(-H "x-auth-token: $TOKEN")
+paso "POST login rechaza origen ajeno con header token" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' -H 'Origin: https://atacante.example' "${AUTH[@]}" -d "{\"username\":\"$USUARIO\",\"password\":\"$CLAVE\"}")" 403
 CODIGO=$(curl -s "${AUTH[@]}" "$APP_URL/api/asistencia/qr" | grep -o '"codigo":"[^"]*"' | cut -d'"' -f4)
+QR_PNG=$(curl -s -b "$JAR" -o /dev/null -w '%{http_code}' "$APP_URL/api/asistencia/qr.png")
+paso "GET QR PNG protegido" "$QR_PNG" 200
 
 echo "== 3b. Presencia registrada por login =="
 asistencias=$(curl -s "${AUTH[@]}" "$APP_URL/api/asistencia")
@@ -115,9 +131,11 @@ for p in "${PAGINAS[@]}"; do
 done
 contenido /dashboard 'class="vote-panel'
 contenido /asistencia-qr 'id="qrCodigo"'
+contenido /asistencia-qr 'id="qrImage"'
 
 echo "== 4b. Acceso de concejal =="
-JAR_CONCEJAL=$(jar_de maria "$CLAVE")
+jar_de maria "$CLAVE"
+JAR_CONCEJAL="$JAR_ULTIMO"
 PAGINAS_CONCEJAL=(/dashboard /quorum /orden-del-dia /votaciones)
 for p in "${PAGINAS_CONCEJAL[@]}"; do
   paso "GET $p como concejal" "$(estado "$p" -b "$JAR_CONCEJAL")" 200
@@ -145,17 +163,23 @@ for p in /concejales /bloques /municipios /sesiones /asistencia-qr /proyectos /r
     printf '  ok    %-48s oculto en nav de concejal\n' "$p"
   fi
 done
+paso "GET /api/history como concejal" "$(estado /api/history -b "$JAR_CONCEJAL")" 403
+paso "GET /api/bloques como concejal" "$(estado /api/bloques -b "$JAR_CONCEJAL")" 403
 
 echo "== 5. API de lectura =="
-for r in /api/session /api/projects /api/history /api/sessions /api/order-of-day /api/quorum /api/attendance /api/reports /api/stats /api/votaciones /api/overview /api/councillors /api/bloques /api/municipios /api/screen; do
-  paso "GET $r" "$(estado $r)" 200
+for r in /api/session /api/projects /api/history /api/sessions /api/order-of-day /api/quorum /api/attendance /api/reports /api/stats /api/votaciones /api/overview /api/councillors /api/bloques /api/municipios; do
+  paso "GET $r sin credenciales" "$(estado $r)" 401
 done
-contenido '/api/screen' '"quorumAlcanzado"'
-contenido '/api/screen' '"bloqueColor"'
-contenido '/api/screen' '"presente":'
-contenido '/api/screen' '"serverAt"'
-paso "GET /api/project/1" "$(estado /api/project/1)" 200
-paso "GET /api/project/9999" "$(estado /api/project/9999)" 404
+paso "GET /api/screen sigue pública" "$(estado /api/screen)" 200
+contenido '/api/screen' '"quorumAlcanzado"' "$JAR"
+contenido '/api/screen' '"bloqueColor"' "$JAR"
+contenido '/api/screen' '"presente":' "$JAR"
+contenido '/api/screen' '"serverAt"' "$JAR"
+paso "GET /api/project/1 sin credenciales" "$(estado /api/project/1)" 401
+paso "GET /api/project/9999 con sesión" "$(estado /api/project/9999 "${AUTH[@]}")" 404
+paso "GET export CSV de votaciones" "$(estado /api/export/votaciones.csv "${AUTH[@]}")" 200
+paso "GET export CSV de asistencia" "$(estado /api/export/asistencia.csv "${AUTH[@]}")" 200
+paso "GET export CSV de auditoría" "$(estado /api/export/auditoria.csv "${AUTH[@]}")" 200
 
 echo "== 6. API protegida sin token =="
 for r in /api/auth/me /api/usuarios /api/auditoria /api/asistencia /api/configuracion; do
@@ -190,18 +214,25 @@ fi
 
 echo "== 9. Asistencia QR =="
 paso "POST checkin codigo invalido" \
-  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d '{"codigo":"DEADBEEF","username":"leo"}')" 400
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -H "Origin: $APP_URL" -d '{"codigo":"DEADBEEF","username":"leo"}')" 400
 paso "POST checkin sin clave no autentica" \
-  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\"}")" 401
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -H "Origin: $APP_URL" -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\"}")" 401
 paso "POST checkin no permite suplantar concejal" \
-  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"incorrecta\"}")" 401
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -H "Origin: $APP_URL" -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"incorrecta\"}")" 401
 paso "POST checkin credenciales propias" \
-  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 200
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -H "Origin: $APP_URL" -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 200
+paso "POST checkin no requiere CSRF con cookie de panel" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -H "Origin: $APP_URL" -b "$JAR" -d "{\"codigo\":\"$CODIGO\",\"username\":\"marta\",\"password\":\"$CLAVE\"}")" 200
 paso "POST checkin duplicado" \
-  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 409
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -H "Origin: $APP_URL" -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 409
+paso "POST checkin rechaza origen ajeno" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -H 'Origin: https://atacante.example' -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 403
+paso "POST checkin rechaza origen ajeno con header token" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -H 'Origin: https://atacante.example' "${AUTH[@]}" -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 403
 
 echo "== 9b. Credenciales individuales =="
-JAR_LEO=$(jar_de leo "$CLAVE")
+jar_de leo "$CLAVE"
+JAR_LEO="$JAR_ULTIMO"
 paso "PUT contraseña corta" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$APP_URL/api/usuarios/12/password" -H 'Content-Type: application/json' "${AUTH[@]}" -d '{"password":"short"}')" 400
 paso "PUT contraseña sin rol administrador" \
@@ -210,14 +241,38 @@ CLAVE_TEMPORAL='Credencial-Temporal-2026'
 paso "PUT restablecer contraseña" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$APP_URL/api/usuarios/12/password" -H 'Content-Type: application/json' "${AUTH[@]}" -d "{\"password\":\"$CLAVE_TEMPORAL\"}")" 200
 paso "POST login rechaza clave anterior" \
-  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 401
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' -H "Origin: $APP_URL" -d "{\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 401
 paso "PUT contraseña invalida sesiones anteriores" \
   "$(estado /api/auth/me -b "$JAR_LEO")" 401
-JAR_LEO=$(jar_de leo "$CLAVE_TEMPORAL")
+jar_de leo "$CLAVE_TEMPORAL"
+JAR_LEO="$JAR_ULTIMO"
 paso "POST login acepta clave individual nueva" \
   "$(estado /api/auth/me -b "$JAR_LEO")" 200
 paso "PUT restaurar contraseña del test" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$APP_URL/api/usuarios/12/password" -H 'Content-Type: application/json' "${AUTH[@]}" -d "{\"password\":\"$CLAVE\"}")" 200
+echo "== 9c. Rate limit =="
+rate_status=0
+for attempt in $(seq 1 11); do
+  rate_status=$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' -H "Origin: $APP_URL" -d '{"username":"unknown","password":"invalid"}')
+done
+paso "POST login rate limit devuelve 429" "$rate_status" 429
+
+echo "== 9d. Cierre automático =="
+paso "PUT duración de votación inválida" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$APP_URL/api/configuracion" -H 'Content-Type: application/json' "${AUTH[@]}" -d '{"duracion_votacion":0}')" 400
+paso "POST activar proyecto finalizado" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/project/2/activate" "${AUTH[@]}")" 409
+node -e 'const Database=require("better-sqlite3");const db=new Database(process.env.VOTACION_DB);db.prepare("UPDATE configuracion SET valor = ? WHERE clave = ?").run(String(Date.now()-1000),"voting_deadline_at");db.close()'
+sesion_vencida=$(curl -s "${AUTH[@]}" "$APP_URL/api/session")
+PASOS=$((PASOS + 1))
+if grep -q '"status":"finalizada"' <<<"$sesion_vencida"; then
+  printf '  ok    %-48s cierra al vencer el plazo persistido\n' 'GET /api/session tras el plazo'
+else
+  printf '  FALLA %-48s no cerró la votación: %s\n' 'GET /api/session tras el plazo' "${sesion_vencida:0:120}"
+  FALLOS=$((FALLOS + 1))
+fi
+paso "POST votar tras cierre automático" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/vote" -H 'Content-Type: application/json' "${AUTH[@]}" -d '{"option":"negativo"}')" 400
 
 echo "== 10. Configuracion =="
 actual=$(curl -s "${AUTH[@]}" "$APP_URL/api/configuracion")
@@ -239,7 +294,8 @@ else
 fi
 
 echo "== 12. Logout =="
-paso "POST /api/auth/logout" "$(curl -s -o /dev/null -w '%{http_code}' -X POST -b "$JAR" -c "$JAR" "$APP_URL/api/auth/logout")" 200
+paso "POST logout sin token CSRF" "$(curl -s -o /dev/null -w '%{http_code}' -X POST -b "$JAR" "$APP_URL/api/auth/logout" -H "Origin: $APP_URL")" 403
+paso "POST logout con token CSRF" "$(curl -s -o /dev/null -w '%{http_code}' -X POST -b "$JAR" -c "$JAR" "$APP_URL/api/auth/logout" -H "Origin: $APP_URL" -H "X-CSRF-Token: $CSRF")" 200
 paso "GET /auditoria tras logout" "$(estado /auditoria -b "$JAR")" 302
 paso "GET /api/auth/me con token revocado" "$(estado /api/auth/me "${AUTH[@]}")" 401
 

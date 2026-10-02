@@ -10,10 +10,13 @@
     <p class="muted" id="qrSesion">—</p>
   </div>
   <div class="qr-box">
+    <img class="qr-image" id="qrImage" alt="Código QR para registrar la asistencia de esta sesión" />
     <div class="qr-code" id="qrCodigo">------</div>
     <div class="qr-actions">
       <a class="btn" id="qrLink" href="#" target="_blank">Abrir link de asistencia</a>
       <button type="button" class="btn secundario" id="qrCopiar">Copiar link</button>
+      <a class="btn secundario" id="qrDescargar" href="/api/asistencia/qr.png" download="asistencia-sesion.png">Descargar QR</a>
+      <a class="btn secundario" href="/api/export/asistencia.csv">Exportar asistencia CSV</a>
     </div>
   </div>
   <div id="qrMensaje" class="message"></div>

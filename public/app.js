@@ -1,4 +1,4 @@
-const TOKEN_KEY = 'votacion:token';
+const CSRF_KEY = 'votacion:csrf';
 const USER_KEY = 'votacion:user';
 
 const pagina = document.body.dataset.page || 'dashboard';
@@ -9,6 +9,13 @@ const pagina = document.body.dataset.page || 'dashboard';
  * controles, porque la autoridad real la tienen los middleware de server.js.
  */
 let usuarioActual = null;
+let ultimaActividad = Date.now();
+
+['pointerdown', 'keydown', 'touchstart'].forEach(eventName => {
+  document.addEventListener(eventName, () => {
+    ultimaActividad = Date.now();
+  }, { passive: true });
+});
 
 function puedeGestionar() {
   return usuarioActual ? Boolean(usuarioActual.puede && usuarioActual.puede.gestionarSesion) : true;
@@ -51,34 +58,35 @@ function texto(id, valor) {
 
 function leerSesion() {
   try {
-    return JSON.parse(localStorage.getItem(USER_KEY) || 'null');
+    return JSON.parse(sessionStorage.getItem(USER_KEY) || 'null');
   } catch (error) {
     return null;
   }
 }
 
-function guardarSesion(token, usuario) {
-  localStorage.setItem(TOKEN_KEY, token);
-  localStorage.setItem(USER_KEY, JSON.stringify(usuario));
+function guardarSesion(csrfToken, usuario) {
+  sessionStorage.setItem(CSRF_KEY, csrfToken);
+  sessionStorage.setItem(USER_KEY, JSON.stringify(usuario));
 }
 
 function borrarSesion() {
-  localStorage.removeItem(TOKEN_KEY);
+  sessionStorage.removeItem(CSRF_KEY);
+  sessionStorage.removeItem(USER_KEY);
+  localStorage.removeItem('votacion:token');
   localStorage.removeItem(USER_KEY);
-}
-
-function tokenActual() {
-  return localStorage.getItem(TOKEN_KEY);
 }
 
 async function api(ruta, opciones = {}) {
   const cabeceras = { 'Content-Type': 'application/json' };
-  if (tokenActual()) {
-    cabeceras['x-auth-token'] = tokenActual();
+  const method = opciones.method || 'GET';
+  const csrfToken = sessionStorage.getItem(CSRF_KEY);
+  cabeceras['x-user-activity-at'] = String(ultimaActividad);
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method) && csrfToken) {
+    cabeceras['x-csrf-token'] = csrfToken;
   }
 
   const response = await fetch(ruta, {
-    method: opciones.method || 'GET',
+    method,
     headers: { ...cabeceras, ...(opciones.headers || {}) },
     body: opciones.body ? JSON.stringify(opciones.body) : undefined,
     credentials: 'same-origin'
@@ -92,6 +100,11 @@ async function api(ruta, opciones = {}) {
 
   const data = await response.json().catch(() => ({}));
   if (response.status === 403) {
+    if (/csrf/i.test(data.error || '')) {
+      borrarSesion();
+      window.location.href = '/login';
+      throw new Error('La sesión cambió o expiró; volvé a ingresar.');
+    }
     // 403 no es sesión expirada: el usuario sigue adentro, sólo ve menos.
     throw new Error(data.error || 'No tenés permiso para ver esta sección.');
   }
@@ -204,8 +217,8 @@ function fmtNumero(valor) {
 
 async function cargarCabecera() {
   try {
-    const sessions = await api('/api/sessions');
-    const activa = sessions.find(session => session.active) || sessions[0];
+    const overview = await api('/api/session');
+    const activa = overview.activeSession;
     if (activa) {
       texto('sessionType', `${activa.name} • ${activa.date}`);
     }
@@ -273,6 +286,18 @@ async function cargarDashboard() {
   texto('pendingCount', session.counts.pendientes);
   texto('connectedCount', `${session.connectedCouncillors} / ${session.totalCouncillors}`);
   texto('statusText', session.status === 'abierta' ? 'Votación abierta' : 'Votación cerrada');
+  const votingDeadline = el('votingDeadline');
+  if (votingDeadline) {
+    if (session.status !== 'abierta' || !session.votingDeadline) {
+      votingDeadline.textContent = 'Cerrada';
+    } else {
+      const seconds = Math.max(0, Math.ceil((session.votingDeadline - Date.now()) / 1000));
+      votingDeadline.textContent = `${String(Math.floor(seconds / 60)).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}`;
+    }
+  }
+  document.querySelectorAll('.vote-btn, .mobile-btn').forEach(button => {
+    button.disabled = session.status !== 'abierta';
+  });
 
   const bar = el('connectedBar');
   if (bar) {
@@ -315,7 +340,7 @@ async function cargarProyectosDashboard() {
     const acciones = document.createElement('div');
     acciones.className = 'project-item-actions';
     acciones.appendChild(project.status === 'abierta' ? etiqueta('En votación', 'verde') : etiqueta('Finalizado', 'gris'));
-    if (puedeGestionar()) {
+    if (puedeGestionar() && project.status === 'abierta') {
       acciones.appendChild(boton('Activar', async () => {
         try {
           await api(`/api/project/${project.id}/activate`, { method: 'POST' });
@@ -336,7 +361,7 @@ async function votar(option) {
     await api('/api/vote', { method: 'POST', body: { option } });
     const usuario = leerSesion();
     if (usuario) {
-      guardarSesion(tokenActual(), { ...usuario, voted: true, vote: option });
+      guardarSesion(sessionStorage.getItem(CSRF_KEY), { ...usuario, voted: true, vote: option });
     }
     if (message) {
       message.style.color = '#2fa84f';
@@ -430,9 +455,14 @@ function conectarCambioPassword() {
     guardar.disabled = true;
     texto('passwordDialogMessage', 'Actualizando credenciales…');
     try {
-      await api(`/api/usuarios/${userId}/password`, { method: 'PUT', body: { password } });
+      const resultado = await api(`/api/usuarios/${userId}/password`, { method: 'PUT', body: { password } });
       dialogo.close();
       el('newPassword').value = '';
+      if (resultado.sesionCerrada) {
+        borrarSesion();
+        window.location.href = '/login';
+        return;
+      }
       const mensaje = el('usuariosMensaje');
       if (mensaje) {
         mensaje.style.color = '#2fa84f';
@@ -592,6 +622,14 @@ async function cargarAsistenciaQr() {
   if (link) {
     link.href = qr.url;
   }
+  const qrImage = el('qrImage');
+  if (qrImage) {
+    qrImage.src = `${qr.imageUrl}?codigo=${encodeURIComponent(qr.codigo)}`;
+  }
+  const qrDownload = el('qrDescargar');
+  if (qrDownload) {
+    qrDownload.href = qr.imageUrl;
+  }
 
   const copiar = el('qrCopiar');
   if (copiar && !copiar.dataset.listo) {
@@ -650,7 +688,9 @@ async function cargarOrden() {
       item.presenter,
       etiqueta(item.status, proyecto && proyecto.status === 'abierta' ? 'verde' : 'gris'),
       proyecto
-        ? (puedeGestionar()
+        ? (proyecto.status !== 'abierta'
+          ? etiqueta('Proyecto finalizado', 'gris')
+          : puedeGestionar()
           ? boton('Activar votación', async () => {
             try {
               await api(`/api/project/${proyecto.id}/activate`, { method: 'POST' });
@@ -659,7 +699,7 @@ async function cargarOrden() {
               console.error(error);
             }
           })
-          : etiqueta('Solo lectura', 'gris'))
+            : etiqueta('Solo lectura', 'gris'))
         : etiqueta('Sin expediente', 'gris')
     ]);
   }), 5);
@@ -679,7 +719,7 @@ async function cargarProyectos() {
     p.counts.afirmativo,
     p.counts.negativo,
     p.counts.abstencion,
-    puedeGestionar()
+    p.status === 'abierta' && puedeGestionar()
       ? boton('Activar', async () => {
         try {
           await api(`/api/project/${p.id}/activate`, { method: 'POST' });
@@ -688,7 +728,7 @@ async function cargarProyectos() {
           console.error(error);
         }
       })
-      : etiqueta('Solo lectura', 'gris')
+      : etiqueta(p.status === 'abierta' ? 'Solo lectura' : 'Finalizado', 'gris')
   ])), 9);
 }
 
@@ -780,30 +820,6 @@ async function cargarReportes() {
     p.counts.abstencion,
     p.startedAtFull
   ])), 8);
-
-  const csvBtn = el('csvBtn');
-  if (csvBtn && !csvBtn.dataset.listo) {
-    csvBtn.dataset.listo = '1';
-    csvBtn.addEventListener('click', () => {
-      const cabecera = 'Expediente,Titulo,Tipo,Resultado,Afirmativo,Negativo,Abstencion,Fecha';
-      const lineas = historial.map(p => [
-        p.project,
-        p.title.replace(/,/g, ';'),
-        p.type,
-        resultadoDe(p),
-        p.counts.afirmativo,
-        p.counts.negativo,
-        p.counts.abstencion,
-        p.startedAtFull
-      ].join(','));
-      const blob = new Blob([[cabecera, ...lineas].join('\n')], { type: 'text/csv;charset=utf-8' });
-      const link = document.createElement('a');
-      link.href = URL.createObjectURL(blob);
-      link.download = 'reporte-votaciones.csv';
-      link.click();
-      URL.revokeObjectURL(link.href);
-    });
-  }
 
   const imprimir = el('imprimirBtn');
   if (imprimir && !imprimir.dataset.listo) {
@@ -1007,9 +1023,7 @@ async function iniciar() {
   try {
     const datos = await api('/api/auth/me');
     usuario = datos.user;
-    if (tokenActual()) {
-      guardarSesion(tokenActual(), usuario);
-    }
+    guardarSesion(sessionStorage.getItem(CSRF_KEY), usuario);
   } catch (error) {
     return;
   }

@@ -163,6 +163,11 @@ const PAGINAS = [
   estado = await js(send, sessionId, sonda);
   paso('login real redirige a /dashboard', estado.path === '/dashboard', JSON.stringify(estado));
   paso('el perfil se carga desde /api/auth/me', Boolean(estado.perfil) && !/Cargando/.test(estado.perfil || ''), estado.perfil);
+  estado = await js(send, sessionId, `(() => ({
+    csrf: Boolean(sessionStorage.getItem('votacion:csrf')),
+    authTokenInLocalStorage: localStorage.getItem('votacion:token')
+  }))()`);
+  paso('el navegador usa cookie HttpOnly sin token de sesión en localStorage', estado.csrf && !estado.authTokenInLocalStorage, JSON.stringify(estado));
 
   console.log('== 2. Las 15 paginas ==');
   for (const pagina of PAGINAS) {
@@ -205,9 +210,15 @@ const PAGINAS = [
   await ir(`${APP}/asistencia-qr`);
   const qr = await js(send, sessionId, `(() => ({
     codigo: document.getElementById('qrCodigo').textContent.trim(),
-    link: document.getElementById('qrLink').getAttribute('href')
+    link: document.getElementById('qrLink').getAttribute('href'),
+    image: document.getElementById('qrImage').getAttribute('src')
   }))()`);
   paso('el panel muestra el codigo de la sesion activa', /^[0-9A-F]{8}$/.test(qr.codigo), `${qr.codigo} -> ${qr.link}`);
+  const qrImage = await js(send, sessionId, `(() => {
+    const image = document.getElementById('qrImage');
+    return { loaded: image.complete && image.naturalWidth > 0, width: image.naturalWidth };
+  })()`);
+  paso('el QR se representa como imagen escaneable', qrImage.loaded && qrImage.width >= 200, JSON.stringify(qrImage));
   await ir(`${APP}${qr.link}`);
   await js(send, sessionId, `(() => {
     document.getElementById('username').value = ${JSON.stringify(process.env.ASISTENCIA || 'leo')};
@@ -285,9 +296,10 @@ const PAGINAS = [
   await sleep(1500);
   const salida = await js(send, sessionId, `(() => ({
     path: location.pathname,
-    token: localStorage.getItem('votacion:token')
+    csrf: sessionStorage.getItem('votacion:csrf'),
+    user: sessionStorage.getItem('votacion:user')
   }))()`);
-  paso('logout vuelve a /login y limpia el storage', salida.path === '/login' && !salida.token, JSON.stringify(salida));
+  paso('logout vuelve a /login y limpia el storage de sesión', salida.path === '/login' && !salida.csrf && !salida.user, JSON.stringify(salida));
   await ir(`${APP}/auditoria`);
   const bloqueado = await js(send, sessionId, 'location.pathname');
   paso('ruta protegida sin sesion redirige a /login', bloqueado === '/login', bloqueado);
