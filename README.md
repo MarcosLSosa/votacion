@@ -90,6 +90,8 @@ tests/                    smoke de API + prueba de navegador por CDP
 docs/                     API, arquitectura, manual de uso y pruebas
 ```
 
-## Estado y próximos pasos
+## Estado actual y pendientes para producción
 
-Funciona de punta a punta en local: login, votación nominal única, quórum, asistencia por código con autogeneración por sesión, activación de proyectos y sesiones, configuración persistida y auditoría de todo. Lo que falta para producción está listado en `docs/ARQUITECTURA.md` (contraseñas con hash, roles, CSRF, APIs de lectura cerradas, sesiones persistentes, timer de votación, imagen QR y exportaciones).
+El sistema funciona de punta a punta en local: login, votación nominal única, quórum, asistencia QR, activación de proyectos y sesiones, configuración persistida y auditoría. Las contraseñas se almacenan con hash scrypt y sal individual; los accesos están separados por niveles (concejal, Mesa y Administración); Administración puede asignar claves individuales, y el check-in QR exige credenciales y rechaza marcas duplicadas.
+
+Esto no significa que la aplicación ya esté lista para producción. Antes de exponerla en un entorno real, quedan pendientes medidas como protección CSRF, persistencia y expiración de sesiones, revisar y limitar las APIs públicas necesarias para la pantalla y la asistencia, aplicar rate limiting y configurar HTTPS y logs de acceso en el despliegue. También faltan el cierre automático de votaciones, la imagen QR y las exportaciones. El detalle está en `docs/ARQUITECTURA.md`.
