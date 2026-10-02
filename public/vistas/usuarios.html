@@ -8,24 +8,38 @@
 <div class="table-card">
   <div class="table-head">
     <h3>Cuentas del cuerpo legislativo</h3>
-    <p class="muted">Los datos provienen de la tabla <code>councillors</code>.</p>
+    <p class="muted">Asigná contraseñas individuales de al menos 12 caracteres. El sistema nunca muestra ni recupera las contraseñas existentes.</p>
     <p class="muted" id="usuariosMensaje"></p>
   </div>
   <table class="data-table">
     <thead>
-      <tr><th>ID</th><th>Nombre</th><th>Rol</th><th>Usuario</th><th>Bloque</th><th>Estado</th><th>Votos</th><th>Nivel de acceso</th></tr>
+      <tr><th>ID</th><th>Nombre</th><th>Rol</th><th>Usuario</th><th>Bloque</th><th>Estado</th><th>Votos</th><th>Nivel de acceso</th><th>Credenciales</th></tr>
     </thead>
     <tbody id="tbodyUsuarios">
-      <tr><td colspan="8" class="muted">Cargando…</td></tr>
+      <tr><td colspan="9" class="muted">Cargando…</td></tr>
     </tbody>
   </table>
 </div>
 
+<dialog class="password-dialog" id="passwordDialog" aria-labelledby="passwordDialogTitle">
+  <form id="passwordForm">
+    <h3 id="passwordDialogTitle">Actualizar contraseña</h3>
+    <p id="passwordDialogUser" class="muted"></p>
+    <label for="newPassword">Nueva contraseña</label>
+    <input type="password" id="newPassword" name="newPassword" minlength="12" maxlength="256" autocomplete="new-password" required />
+    <p class="password-hint">Usá al menos 12 caracteres. La contraseña anterior dejará de funcionar.</p>
+    <p id="passwordDialogMessage" class="message" role="status" aria-live="polite"></p>
+    <div class="page-actions">
+      <button type="button" class="btn secundario" id="passwordCancel">Cancelar</button>
+      <button type="submit" class="btn" id="passwordSave">Guardar contraseña</button>
+    </div>
+  </form>
+</dialog>
+
 <div class="table-card">
   <div class="table-head">
     <h3>Cómo funciona el nivel de acceso</h3>
-    <p class="muted"><strong>Concejal</strong>: vota y consulta concejales, bloques, municipios, quórum, orden del día, proyectos, votaciones, reportes y estadísticas. <strong>Mesa</strong>: además habilita sesiones, activa votaciones, gestiona el orden del día, la asistencia y lee la auditoría. <strong>Administrador</strong>: además administra usuarios y configuración.</p>
+    <p class="muted"><strong>Concejal</strong>: votación en curso, quórum, orden del día y votaciones. <strong>Mesa</strong>: además accede a consultas ampliadas, sesiones, proyectos, asistencia, reportes y auditoría. <strong>Administrador</strong>: además administra usuarios y configuración.</p>
     <p class="muted">El cambio de nivel se aplica a la sesión que la persona ya tiene abierta: no necesita volver a ingresar.</p>
   </div>
 </div>
-

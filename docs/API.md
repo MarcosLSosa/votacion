@@ -19,12 +19,13 @@ Los tokens se guardan en un `Map` en memoria: al reiniciar el servidor todas las
 ```bash
 curl -i -X POST http://localhost:3000/api/auth/login \
   -H 'Content-Type: application/json' \
-  -d '{"username":"sofia","password":"1234"}'
+  -d '{"username":"sofia","password":"<VOTACION_BOOTSTRAP_PASSWORD>"}'
 ```
 - Body: `username`, `password`.
 - 200 → `{ "token": "…", "user": { "id": 1, "name": "Sofía Pérez", "role": "Presidenta", "voted": true, "vote": "afirmativo" } }` + `Set-Cookie`.
 - 401 → `Usuario o contraseña incorrectos.` (queda un registro `Intento fallido` en auditoría).
 - Efectos: marca `connected = true` en el concejal, crea token, auditoría `Inicio de sesión`.
+- En `NODE_ENV=production`, la cookie incluye `Secure`; serví la aplicación únicamente por HTTPS.
 
 ### `POST /api/auth/logout` 🔒
 Elimina el token y la cookie. 200 → `{ "success": true }`. Auditoría `Fin de sesión`.
@@ -137,15 +138,19 @@ El código vive en la tabla `configuracion` (`qr_codigo` + `qr_sesion`) y cambia
 ### `GET /api/asistencia` 🔒
 Últimas 50 marcas: `{ id, creadoEn, metodo, codigo, concejalId, name, role }`.
 
-### `POST /api/asistencia/checkin` (pública, sin sesión)
+### `POST /api/asistencia/checkin` (pública, requiere credenciales)
 ```bash
 curl -X POST http://localhost:3000/api/asistencia/checkin \
   -H 'Content-Type: application/json' \
-  -d '{"codigo":"80D7AF7D","username":"marta"}'
+  -d '{"codigo":"80D7AF7D","username":"marta","password":"<clave-personal>"}'
 ```
 - 200 → `{ "success": true, "name": "Marta Silva" }`.
-- 400 código inválido, 404 concejal inexistente.
-- Efectos: marca `connected = true`, inserta en `asistencias`, auditoría `Asistencia QR`.
+- 400 código inválido; 401 credenciales incompletas/incorrectas; 404 si no hay sesión disponible; 409 si ya registró asistencia.
+- El código debe corresponder al QR de la sesión activa; un código vencido se rechaza.
+- Efectos: verifica usuario y contraseña, marca `connected = true`, inserta una sola asistencia y registra auditoría `Asistencia QR`.
+
+### `PUT /api/usuarios/:id/password` 🔒 (Administración)
+Permite a Administración asignar una clave individual sin leer ni recuperar la clave anterior. Envía `{ "password": "una-clave-individual-de-12-o-mas-caracteres" }`; requiere una clave de al menos 12 caracteres. El cambio invalida las sesiones existentes de esa cuenta. Nunca devuelve el hash.
 
 ---
 
@@ -190,6 +195,6 @@ Sólo se aceptan `municipio_sede`, `mayoria`, `duracion_votacion`, `pantalla_pub
 
 ## Rutas sin sesión
 
-`/api/session`, `/api/projects`, `/api/history`, `/api/project/:id`, `/api/sessions`, `/api/order-of-day`, `/api/quorum`, `/api/attendance`, `/api/reports`, `/api/stats`, `/api/votaciones`, `/api/overview`, `/api/screen`, `/api/usuarios`, `/api/councillors`, `/api/bloques`, `/api/municipios` y `POST /api/asistencia/checkin`.
+`/api/session`, `/api/projects`, `/api/history`, `/api/project/:id`, `/api/sessions`, `/api/order-of-day`, `/api/quorum`, `/api/attendance`, `/api/reports`, `/api/stats`, `/api/votaciones`, `/api/overview`, `/api/screen`, `/api/usuarios`, `/api/councillors`, `/api/bloques` y `/api/municipios`.
 
 Son de lectura (o de marcado de presencia) y están pensadas para la pantalla pública y la página `/asistencia`. Todo lo que escribe datos de administración o revela registro fino exige sesión. Ver limitaciones en `docs/ARQUITECTURA.md`.

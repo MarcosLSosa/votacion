@@ -1,49 +1,62 @@
-# Cómo se probó el sistema
+# Cómo probar el sistema
 
-Hay dos baterías de pruebas, ambas sin dependencias nuevas (solo `curl`, `node` y Chrome).
+Hay dos baterías automatizadas sin dependencias de prueba adicionales: `curl`, `node` y Chrome. Corrélas con una base temporal y `NODE_ENV=test`; las pruebas escriben votos, auditoría y asistencia.
 
-## 1. Prueba de rutas y API (`tests/smoke-api.sh`)
+## Preparar un servidor aislado
 
-Cubre 12 grupos: rutas públicas, las 15 páginas sin sesión (302 a `/login`), login real + la marca de presencia que deja en `asistencias`, las 15 páginas con sesión (200 + `nav-link active`), 17 endpoints de lectura (incluido `GET /api/screen`, con `quorumAlcanzado`, `bloqueColor`, `presente` y `serverAt`), endpoints protegidos sin token (401), los mismos con token (200), votación (opción inválida 400, voto 200, voto duplicado 409), asistencia QR (código inválido 400, usuario inexistente 404), configuración (guardado 200 y clave no permitida 400), auditoría y logout (páginas vuelven a 302 y el token revocado da 401).
+En PowerShell:
 
-```bash
-npm start &                      # o en otra terminal
-bash tests/smoke-api.sh          # usa http://localhost:3000
-APP_URL=http://localhost:3001 USUARIO=raul bash tests/smoke-api.sh
+```powershell
+$env:NODE_ENV = 'test'
+$env:VOTACION_TEST_PASSWORD = 'Prueba-segura-2026'
+$env:VOTACION_DB = Join-Path $env:TEMP 'votacion-test.db'
+$env:PORT = '3001'
+npm start
 ```
 
-Sale `TODO OK: N verificaciones` con exit 0, o lista cada falla con exit 1.
+`VOTACION_TEST_PASSWORD` debe coincidir con `CLAVE` si se especifica. No uses esta configuración en producción.
 
-## 2. Prueba en navegador (`tests/navegador-cdp.mjs`)
+## 1. Rutas y API (`tests/smoke-api.sh`)
 
-Usa Chrome real por DevTools Protocol (Node 22 ya trae `WebSocket` global, no hace falta `puppeteer`). Verifica que el HTML servido se enchufa con `public/app.js`: login real desde el formulario (y credenciales inválidas rechazadas), recorrido por las 15 páginas midiendo KPIs, filas de tablas, chips, barras, badges y controles, guardado de configuración (restaurando el valor original), link de asistencia, check-in público, la pantalla pública `/screen` y logout con bloqueo posterior. Detecta errores de consola y excepciones por página.
+En otra terminal PowerShell:
 
-En `/screen` se chequean las 8 cosas que la hacen util en el recinto: una ficha por concejal (presentes + ausentes = cuerpo), el badge verde `PRESENTE`, que presentes/ausentes cubran el cuerpo, la dona con `conic-gradient` de los conteos, la barra de presencia y el voton global, las 4 tarjetas de conteo con números, el reloj en vivo en formato 24 h con el estado del quórum y cero errores de consola. Antes de salir vuelve al panel porque `/screen` es pública y no tiene botón de salida.
-
-```bash
-google-chrome --headless=new --remote-debugging-port=9222 --no-first-run --no-default-browser-check about:blank &
-APP_URL=http://localhost:3001 node tests/navegador-cdp.mjs
+```powershell
+$env:APP_URL = 'http://localhost:3001'
+$env:VOTACION_TEST_PASSWORD = 'Prueba-segura-2026'
+& 'C:\Program Files\Git\bin\bash.exe' tests/smoke-api.sh
 ```
 
-Variables: `APP_URL`, `CDP_URL`, `USUARIO` (default `sofia`), `CLAVE`, `ASISTENCIA` (default `leo`, el usuario que marca presencia). El paso del voto se salta solo si el usuario ya votó el proyecto activo; para forzarlo usá `USUARIO=raul`, que es el único del seed sin voto.
+La batería comprueba las rutas públicas y protegidas, permisos por nivel, login/logout, endpoints, voto duplicado, check-in QR con y sin credenciales, rechazo de suplantación y duplicados, asignación de contraseñas (incluidos permisos de Administración e invalidación de sesiones previas), ausencia de hashes en respuestas API, configuración y auditoría. Devuelve `TODO OK: N verificaciones` con exit 0 o detalla los fallos con exit 1.
 
-## Resultado de la última corrida (29/09/2026 19:40, Node v22.22.1, Chrome headless)
+## 2. Flujo en navegador (`tests/navegador-cdp.mjs`)
 
-Se corrió con base aislada (`VOTACION_DB=/tmp/votacion-test.db`, puerto 3199) para no tocar `data/votacion.db`.
+Chrome se controla mediante DevTools Protocol; Node 22 o superior incluye `WebSocket`, por lo que no hace falta Puppeteer. Iniciá Chrome headless:
 
-- `smoke-api.sh`: `TODO OK: 107 verificaciones` (exit 0), incluidas las 15 páginas sin sesión (302 a `/login`), las 15 con sesión (200 + nav activa + ids del template), `GET /api/screen` con los campos nuevos y el 401 tras `logout`.
-- `navegador-cdp.mjs` con `USUARIO=raul`: `TODO OK de 49 verificaciones` (exit 0), 15/15 páginas con datos reales, `/screen` en verde y **cero errores de consola**. El conteo es 49 cuando corre el paso del voto y 48 cuando se salta porque el usuario ya votó. Ejemplos de lo que se levanta desde SQLite: Usuarios 12 filas + KPIs; Concejales 12 filas con bloque y voto; Bloques 3 filas y 3 chips de miembros; Municipios 3 filas con participación; Sesiones 2 filas; Asistencia QR con código y marcas; Quórum 4 KPIs + 12 filas; Orden del día 3 filas con botones; Proyectos 3 filas + 3 controles de activación; Votaciones 12 KPIs + 3 tarjetas de detalle con 39 badges; Reportes 4 KPIs; Estadísticas 4 KPIs + 6 barras; Auditoría con los eventos reales; Configuración 8 controles.
-- `/screen` con 12 concejales del seed: `fichas=12`, `presentes=10 / ausentes=2`, dona `conic-gradient(...)`, barra `83% · 10 PRESENTES`, tarjetas `cards=4 · 8/3/1/0`, quórum `QUÓRUM OK` y reloj `19:36:xx`.
-- Flujo de voto: con `raul` (el único sin voto) el resumen pasó de `negativo 2 / pendientes 1` a `negativo 3 / pendientes 0` y el mensaje quedó en `Ya emitiste tu voto: NEGATIVO`. Al usar base aislada el seed queda intacto para volver a probar.
-- Flujo QR: código real `CC211242`, link `/asistencia?codigo=…`, check-in de `leo` respondido `Listo, Leo Ramos: tu presencia quedó registrada.`
-- Configuración: guardado 200 y mensaje `Configuración guardada.`; se restauró `duracion_votacion = 5`.
-- Login invalidado: credenciales incorrectas muestran `Usuario o contraseña incorrectos.` y no dejan entrar; tras `logout` el token revocado vuelve a responder 401.
+```powershell
+& 'C:\Program Files\Google\Chrome\Application\chrome.exe' --headless=new --remote-debugging-port=9222 --no-first-run --no-default-browser-check about:blank
+```
 
-## Cosas a tener en cuenta al volver a probar
+En otra terminal:
 
-- `data/votacion.db` está gitignoreada; si la borrás, el servidor la recrea con el seed en el próximo arranque.
-- `VOTACION_DB=/ruta/base.db npm start` levanta el servidor con otra base: útil para correr las pruebas sin ensuciar (ni revertir) la base de siempre. La carpeta se crea sola si no existe.
-- Los tokens viven en memoria: si reiniciás el servidor, hay que volver a loguearse (y los tokens guardados en `localStorage` quedan invalidados, la app redirige a `/login`).
-- Las pruebas escriben en la base (auditoría, asistencias, configuración, votos). `smoke-api.sh` restaura la duración de votación; el resto queda como rastro real, que es lo que se quiere ver en Auditoría.
-- El reloj de `/screen` y `serverAt` se piden con `hour12: false` (`19:36:41`). Si alguien lo cambia a 12 h, el paso `reloj en vivo y quorum indicado` de `navegador-cdp.mjs` pasa a fallar porque `es-AR` agrega `p. m.`.
+```powershell
+$env:APP_URL = 'http://localhost:3001'
+$env:USUARIO = 'sofia'
+$env:CLAVE = 'Prueba-segura-2026'
+$env:ASISTENCIA = 'leo'
+node tests/navegador-cdp.mjs
+```
 
+El flujo cubre login real e inválido, control de visibilidad de contraseña, las 15 páginas, configuración, asistencia QR autenticada, `/screen`, logout y errores de consola. Si el usuario indicado en `ASISTENCIA` ya registró presencia en esa sesión, elegí otro usuario sin marca. `USUARIO=raul` permite probar el camino de voto si aún no votó el proyecto activo.
+
+## Resultado de verificación de esta revisión
+
+- `smoke-api.sh`: **153 verificaciones aprobadas**.
+- `navegador-cdp.mjs`: **51 verificaciones aprobadas**, incluidas las 15 páginas, check-in válido, visualización de `/screen` y cero errores de consola.
+- Sintaxis: `node --check` en servidor, scripts del navegador y cliente; `bash -n` en `smoke-api.sh`.
+- Migración de una base legada: sin `VOTACION_BOOTSTRAP_PASSWORD` el proceso rechaza el arranque sin modificar claves; con la variable, las 12 cuentas se convierten en hashes scrypt únicos, la clave heredada no autentica y la clave de bootstrap permite entrar a `sofia`.
+
+## Notas
+
+- No borres ni uses `data/votacion.db` para pruebas: las baterías modifican asistencia, votos, configuración y auditoría.
+- Los tokens viven en memoria. Reiniciar el proceso cierra todas las sesiones.
+- `VOTACION_DB` permite usar una base temporal alternativa; al actualizar una base con claves legadas, configurá `VOTACION_BOOTSTRAP_PASSWORD` antes de iniciar el servidor.

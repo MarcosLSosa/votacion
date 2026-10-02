@@ -2,11 +2,11 @@
 
 ## Ingreso
 
-Abrí `http://localhost:3000` → te manda a `/login`. Entrá con un usuario del cuerpo y la clave `1234`:
+Abrí `http://localhost:3000` → te manda a `/login`. Ingresá con las credenciales individuales que te asignó la administración del Concejo. La base inicial contiene datos ficticios sólo para desarrollo; no uses esas cuentas para una sesión real.
 
-`sofia` (Presidenta), `juan`, `maria`, `carlos`, `ana`, `pedro`, `lucia`, `diego`, `marta`, `raul`, `patricia`, `leo`.
+La sesión dura 8 horas o hasta que cierres la sesión con el botón **Salir** de la tarjeta del perfil. Si el servidor se reinicia, hay que volver a entrar.
 
-La sesión dura 8 horas o hasta que cierres el sesión con el botón **Salir** de la tarjeta del perfil. Si el servidor se reinicia, hay que volver a entrar.
+Los concejales sólo tienen en su menú las cuatro vistas de uso habitual: **Votación en curso, Orden del Día, Quórum y Votaciones**. Las páginas de consulta ampliada requieren Mesa; Usuarios y Configuración requieren Administración.
 
 ## Panel: qué hace cada página
 
@@ -41,10 +41,14 @@ Todas las páginas se refrescan solas cada 5 segundos; no hace falta recargar.
 ## Asistencia con QR
 
 1. En `/asistencia-qr` está el código de la sesión activa (por ejemplo `80D7AF7D`) y el link `/asistencia?codigo=80D7AF7D`. Ese link es el que va en el cartel o en el QR impreso.
-2. El concejal abre el link desde su celular (no necesita estar logueado), escribe su usuario y toca **Marcar presencia**.
-3. Si el código coincide, aparece `Listo, <Nombre>: tu presencia quedó registrada`, el concejal pasa a **conectado** y suma para el quórum.
+2. El concejal abre el link desde su celular, escribe su usuario y contraseña individual, y toca **Marcar presencia**. No necesita iniciar sesión en el panel.
+3. Si el código coincide y las credenciales son válidas, aparece `Listo, <Nombre>: tu presencia quedó registrada`, el concejal pasa a **conectado** y suma para el quórum. Códigos vencidos, credenciales incorrectas y marcas duplicadas se rechazan.
 4. En `/asistencia-qr` se ve la marca con hora y método, y la lista de ausentes.
 5. Cuando cambia la sesión activa se emite un código nuevo: los links viejos dejan de funcionar.
+
+## Gestión de contraseñas
+
+La cuenta inicial de Administración (`sofia`) recibe la contraseña definida en `VOTACION_BOOTSTRAP_PASSWORD` durante la primera inicialización o la migración de una base anterior. Desde **Usuarios → Cambiar clave**, Administración asigna una contraseña individual (mínimo 12 caracteres) a cada integrante. Las contraseñas no se pueden consultar; asignar una nueva invalida las sesiones abiertas de esa cuenta.
 
 ## Pantalla pública
 

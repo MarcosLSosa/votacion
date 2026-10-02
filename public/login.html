@@ -9,19 +9,35 @@
 <body class="login-body">
   <div class="login-shell">
     <form class="login-card" id="loginForm" novalidate>
-      <h2>Ingreso de concejales</h2>
-      <p>Accede con tu usuario para votar en la sesión.</p>
-      <label>
+      <header class="login-brand">
+        <span class="login-brand-icon" aria-hidden="true">🏛</span>
+        <span>
+          <strong>CONCEJO DELIBERANTE</strong>
+          <small>Sistema de votación</small>
+        </span>
+      </header>
+
+      <div class="login-heading">
+        <span class="login-eyebrow">Acceso institucional</span>
+        <h1>Bienvenido</h1>
+        <p>Ingresá con las credenciales asignadas para continuar a la sesión.</p>
+      </div>
+
+      <label for="username">
         Usuario
-        <input type="text" id="username" autocomplete="username" />
+        <input type="text" id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required />
       </label>
-      <label>
+      <label for="password">
         Contraseña
-        <input type="password" id="password" autocomplete="current-password" />
+        <span class="password-field">
+          <input type="password" id="password" name="password" autocomplete="current-password" required />
+          <button type="button" class="password-toggle" id="passwordToggle" aria-label="Mostrar contraseña" aria-pressed="false">Mostrar</button>
+        </span>
       </label>
-      <button id="loginBtn" type="submit">Ingresar</button>
-      <div class="login-help">Usuarios: sofia, juan, maria, carlos, ana, pedro, lucia, diego, marta, raul, patricia, leo. Contraseña: 1234</div>
-      <div id="loginMessage" class="message"></div>
+      <button id="loginBtn" type="submit">Ingresar al sistema</button>
+      <p class="login-help">¿No tenés acceso? Contactá a la administración del Concejo.</p>
+      <div id="loginMessage" class="message" role="status" aria-live="polite"></div>
+      <div class="login-security"><span aria-hidden="true">●</span> No compartas tus credenciales</div>
     </form>
   </div>
   <script src="/login.js"></script>

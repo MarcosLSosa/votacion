@@ -115,6 +115,64 @@ if (columnaPerfil === 0) {
   db.exec('ALTER TABLE councillors ADD COLUMN perfil TEXT');
 }
 
+const SCRYPT_N = 16384;
+const SCRYPT_R = 8;
+const SCRYPT_P = 1;
+const SCRYPT_KEY_LENGTH = 64;
+const SCRYPT_MAXMEM = 64 * 1024 * 1024;
+const BOOTSTRAP_PASSWORD = process.env.VOTACION_BOOTSTRAP_PASSWORD || '';
+const TEST_PASSWORD = process.env.NODE_ENV === 'test' ? process.env.VOTACION_TEST_PASSWORD || '' : '';
+
+if (BOOTSTRAP_PASSWORD && BOOTSTRAP_PASSWORD.length < 12) {
+  throw new Error('VOTACION_BOOTSTRAP_PASSWORD must be at least 12 characters long.');
+}
+
+function hashPassword(password) {
+  const salt = crypto.randomBytes(16);
+  const hash = crypto.scryptSync(password, salt, SCRYPT_KEY_LENGTH, {
+    N: SCRYPT_N,
+    r: SCRYPT_R,
+    p: SCRYPT_P,
+    maxmem: SCRYPT_MAXMEM
+  });
+  return `scrypt$${SCRYPT_N}$${SCRYPT_R}$${SCRYPT_P}$${salt.toString('hex')}$${hash.toString('hex')}`;
+}
+
+function verificarPassword(password, guardado) {
+  const partes = String(guardado || '').split('$');
+  if (partes.length !== 6 || partes[0] !== 'scrypt') {
+    return false;
+  }
+  const [, n, r, p, saltHex, hashHex] = partes;
+  const parametros = { N: Number(n), r: Number(r), p: Number(p) };
+  const salt = Buffer.from(saltHex, 'hex');
+  const esperado = Buffer.from(hashHex, 'hex');
+  if (
+    parametros.N !== SCRYPT_N ||
+    parametros.r !== SCRYPT_R ||
+    parametros.p !== SCRYPT_P ||
+    salt.length !== 16 ||
+    esperado.length !== SCRYPT_KEY_LENGTH
+  ) {
+    return false;
+  }
+  const actual = crypto.scryptSync(password, salt, esperado.length, {
+    ...parametros,
+    maxmem: SCRYPT_MAXMEM
+  });
+  return crypto.timingSafeEqual(actual, esperado);
+}
+
+function passwordInicial(username) {
+  if (TEST_PASSWORD) {
+    return hashPassword(TEST_PASSWORD);
+  }
+  if (username === 'sofia' && BOOTSTRAP_PASSWORD) {
+    return hashPassword(BOOTSTRAP_PASSWORD);
+  }
+  return hashPassword(crypto.randomBytes(32).toString('base64url'));
+}
+
 /*
  * Niveles de acceso del panel. `councillors.perfil` guarda el nivel asignado y,
  * si está vacío, se deduce del cargo (columna `role`).
@@ -226,7 +284,8 @@ function getAllCouncillors() {
 }
 
 function getCouncillorByUsername(username) {
-  const row = db.prepare('SELECT * FROM councillors WHERE username = ?').get(username);
+  const normalized = String(username || '').trim().toLowerCase();
+  const row = db.prepare('SELECT * FROM councillors WHERE username = ?').get(normalized);
   return row ? rowToCouncillor(row) : null;
 }
 
@@ -360,25 +419,30 @@ function updateSession(id, data) {
 function seedDatabase() {
   const councillorCount = db.prepare('SELECT COUNT(*) AS count FROM councillors').get().count;
   if (councillorCount === 0) {
+    if (!TEST_PASSWORD && !BOOTSTRAP_PASSWORD) {
+      throw new Error('Set VOTACION_BOOTSTRAP_PASSWORD (at least 12 characters) before initializing accounts.');
+    }
     const stmt = db.prepare(
       'INSERT INTO councillors (id, name, role, username, password, connected, votes) VALUES (?, ?, ?, ?, ?, ?, ?)'
     );
     const initial = [
-      [1, 'Sofía Pérez', 'Presidenta', 'sofia', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
-      [2, 'Juan López', 'Vicepresidente', 'juan', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
-      [3, 'María Gómez', 'Concejala', 'maria', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
-      [4, 'Carlos Díaz', 'Concejal', 'carlos', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
-      [5, 'Ana Ruiz', 'Concejala', 'ana', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
-      [6, 'Pedro Martínez', 'Concejal', 'pedro', '1234', 1, JSON.stringify({ 1: 'afirmativo' })],
-      [7, 'Lucía Fernández', 'Concejala', 'lucia', '1234', 1, JSON.stringify({ 1: 'negativo' })],
-      [8, 'Diego Torres', 'Concejal', 'diego', '1234', 1, JSON.stringify({ 1: 'negativo' })],
-      [9, 'Marta Silva', 'Concejala', 'marta', '1234', 0, JSON.stringify({ 1: 'abstencion' })],
-      [10, 'Raúl Pérez', 'Concejal', 'raul', '1234', 1, JSON.stringify({})],
-      [11, 'Patricia Ortiz', 'Concejala', 'patricia', '1234', 0, JSON.stringify({ 1: 'afirmativo' })],
-      [12, 'Leo Ramos', 'Concejal', 'leo', '1234', 0, JSON.stringify({ 1: 'afirmativo' })]
+      [1, 'Sofía Pérez', 'Presidenta', 'sofia', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [2, 'Juan López', 'Vicepresidente', 'juan', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [3, 'María Gómez', 'Concejala', 'maria', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [4, 'Carlos Díaz', 'Concejal', 'carlos', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [5, 'Ana Ruiz', 'Concejala', 'ana', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [6, 'Pedro Martínez', 'Concejal', 'pedro', 1, JSON.stringify({ 1: 'afirmativo' })],
+      [7, 'Lucía Fernández', 'Concejala', 'lucia', 1, JSON.stringify({ 1: 'negativo' })],
+      [8, 'Diego Torres', 'Concejal', 'diego', 1, JSON.stringify({ 1: 'negativo' })],
+      [9, 'Marta Silva', 'Concejala', 'marta', 0, JSON.stringify({ 1: 'abstencion' })],
+      [10, 'Raúl Pérez', 'Concejal', 'raul', 1, JSON.stringify({})],
+      [11, 'Patricia Ortiz', 'Concejala', 'patricia', 0, JSON.stringify({ 1: 'afirmativo' })],
+      [12, 'Leo Ramos', 'Concejal', 'leo', 0, JSON.stringify({ 1: 'afirmativo' })]
     ];
     const insert = db.transaction(rows => {
-      for (const row of rows) stmt.run(...row);
+      for (const [id, name, role, username, connected, votes] of rows) {
+        stmt.run(id, name, role, username, passwordInicial(username), connected, votes);
+      }
     });
     insert(initial);
   }
@@ -454,6 +518,28 @@ function seedDatabase() {
 }
 
 seedDatabase();
+function migrarPasswordsPlanas() {
+  const sinHash = db.prepare("SELECT id, username FROM councillors WHERE password NOT LIKE 'scrypt$%' OR password IS NULL").all();
+  if (sinHash.length === 0) {
+    return;
+  }
+  if (!TEST_PASSWORD && !BOOTSTRAP_PASSWORD) {
+    throw new Error('Legacy plaintext passwords found. Set VOTACION_BOOTSTRAP_PASSWORD before restarting to rotate them securely.');
+  }
+  const actualizar = db.prepare('UPDATE councillors SET password = ? WHERE id = ?');
+  const migrar = db.transaction(rows => {
+    for (const usuario of rows) {
+      const password = TEST_PASSWORD
+        ? TEST_PASSWORD
+        : usuario.username === 'sofia'
+          ? BOOTSTRAP_PASSWORD
+          : crypto.randomBytes(32).toString('base64url');
+      actualizar.run(hashPassword(password), usuario.id);
+    }
+  });
+  migrar(sinHash);
+}
+migrarPasswordsPlanas();
 sincronizarPerfiles();
 
 let activeProjectId = 1;
@@ -799,6 +885,26 @@ app.put('/api/usuarios/:id/perfil', authMiddleware, requirePerfil('admin'), (req
   res.json({ success: true, usuario: { id: destino.id, username: destino.username, perfil, nivel: PERFILES[perfil].etiqueta } });
 });
 
+app.put('/api/usuarios/:id/password', authMiddleware, requirePerfil('admin'), (req, res) => {
+  const destino = getCouncillorById(Number(req.params.id));
+  if (!destino) {
+    return res.status(404).json({ error: 'Usuario no encontrado.' });
+  }
+  const password = (req.body || {}).password;
+  if (typeof password !== 'string' || password.length < 12 || password.length > 256) {
+    return res.status(400).json({ error: 'La contraseña debe tener entre 12 y 256 caracteres.' });
+  }
+
+  db.prepare('UPDATE councillors SET password = ? WHERE id = ?').run(hashPassword(password), destino.id);
+  for (const [token, usuario] of tokens.entries()) {
+    if (usuario.id === destino.id && token !== req.token) {
+      tokens.delete(token);
+    }
+  }
+  audit(req.user.username, 'Credenciales actualizadas', `Se cambió la contraseña de ${destino.name} (${destino.username})`);
+  res.json({ success: true });
+});
+
 app.get('/api/councillors', (req, res) => {
   const activeProject = getActiveProject();
   const activeId = activeProject ? activeProject.id : null;
@@ -835,10 +941,12 @@ function publicUser(user) {
 }
 
 app.post('/api/auth/login', (req, res) => {
-  const { username, password } = req.body;
+  const body = req.body || {};
+  const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
   const user = getCouncillorByUsername(username);
-  if (!user || user.password !== password) {
-    audit(username, 'Intento fallido', 'Credenciales inválidas');
+  if (!user || !password || !verificarPassword(password, user.password)) {
+    audit(username || 'desconocido', 'Intento fallido', 'Credenciales inválidas');
     return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
   }
 
@@ -852,7 +960,7 @@ app.post('/api/auth/login', (req, res) => {
 
   res.setHeader(
     'Set-Cookie',
-    `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800`
+    `${SESSION_COOKIE}=${token}; Path=/; HttpOnly; SameSite=Lax; Max-Age=28800${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
   );
   res.json({ token, user: publicUser(user) });
 });
@@ -1017,25 +1125,30 @@ app.get('/api/asistencia', authMiddleware, requirePerfil('mesa'), (req, res) => 
 });
 
 app.post('/api/asistencia/checkin', (req, res) => {
-  const { codigo, username } = req.body || {};
-  const config = getConfig();
-  if (!codigo || codigo.toUpperCase() !== String(config.qr_codigo || '').toUpperCase()) {
+  const { codigo, username, password } = req.body || {};
+  const checkin = codigoActivo();
+  if (!checkin) {
+    return res.status(404).json({ error: 'No hay una sesión activa para registrar asistencia.' });
+  }
+  if (typeof codigo !== 'string' || codigo.trim().toUpperCase() !== checkin.codigo) {
     return res.status(400).json({ error: 'El código de asistencia no es válido.' });
   }
-  const concejal = getCouncillorByUsername(String(username || '').trim().toLowerCase());
-  if (!concejal) {
-    return res.status(404).json({ error: 'Concejal no encontrado.' });
+  const concejal = getCouncillorByUsername(username);
+  if (
+    !concejal ||
+    typeof password !== 'string' ||
+    !verificarPassword(password, concejal.password)
+  ) {
+    audit(typeof username === 'string' ? username.trim().toLowerCase() : 'desconocido', 'Intento de asistencia fallido', 'Credenciales inválidas');
+    return res.status(401).json({ error: 'Usuario o contraseña incorrectos.' });
   }
 
+  if (!registrarPresente(concejal, 'qr', checkin.codigo)) {
+    return res.status(409).json({ error: 'Tu asistencia ya está registrada para esta sesión.' });
+  }
   concejal.connected = true;
   updateCouncillor(concejal);
 
-  const sessions = getAllSessions();
-  const activeSession = sessions.find(session => session.active) || sessions[0] || null;
-  const ahora = new Date().toLocaleString('es-AR');
-  db.prepare('INSERT INTO asistencias (sesion_id, concejal_id, codigo, metodo, creado_en) VALUES (?, ?, ?, ?, ?)')
-    .run(activeSession ? activeSession.id : null, concejal.id, String(codigo).toUpperCase(), 'qr', ahora);
-  audit(concejal.username, 'Asistencia QR', `${concejal.name} marcó presencia`);
   res.json({ success: true, name: concejal.name });
 });
 
@@ -1177,17 +1290,17 @@ app.get('/api/screen', (req, res) => {
 const VISTAS = {
   dashboard: { titulo: 'Votación en curso', descripcion: 'Sesión en tiempo real, resumen y emisión de votos.', nivel: 'concejal' },
   usuarios: { titulo: 'Usuarios', descripcion: 'Cuentas, niveles y estado de conexión del cuerpo legislativo.', nivel: 'admin' },
-  concejales: { titulo: 'Concejales', descripcion: 'Datos de concejales, bloque y asistencia a la sesión.', nivel: 'concejal' },
-  bloques: { titulo: 'Bloques', descripcion: 'Bloques políticos, integrantes y presencia por bloque.', nivel: 'concejal' },
-  municipios: { titulo: 'Municipios', descripcion: 'Municipios del departamento y su peso electoral.', nivel: 'concejal' },
+  concejales: { titulo: 'Concejales', descripcion: 'Datos de concejales, bloque y asistencia a la sesión.', nivel: 'mesa' },
+  bloques: { titulo: 'Bloques', descripcion: 'Bloques políticos, integrantes y presencia por bloque.', nivel: 'mesa' },
+  municipios: { titulo: 'Municipios', descripcion: 'Municipios del departamento y su peso electoral.', nivel: 'mesa' },
   sesiones: { titulo: 'Sesiones', descripcion: 'Sesiones convocadas, estado y quórum requerido.', nivel: 'mesa' },
   'asistencia-qr': { titulo: 'Asistencia QR', descripcion: 'Código de asistencia y marcas de presencia del día.', nivel: 'mesa' },
   quorum: { titulo: 'Quórum', descripcion: 'Concejales presentes, ausentes y validez del quórum.', nivel: 'concejal' },
   'orden-del-dia': { titulo: 'Orden del Día', descripcion: 'Puntos del orden del día y su estado de tratamiento.', nivel: 'concejal' },
-  proyectos: { titulo: 'Proyectos', descripcion: 'Expedientes ingresados y su estado de votación.', nivel: 'concejal' },
+  proyectos: { titulo: 'Proyectos', descripcion: 'Expedientes ingresados y su estado de votación.', nivel: 'mesa' },
   votaciones: { titulo: 'Votaciones', descripcion: 'Detalle voto a voto de cada proyecto tratado.', nivel: 'concejal' },
-  reportes: { titulo: 'Reportes', descripcion: 'Indicadores consolidados y descarga de resultados.', nivel: 'concejal' },
-  estadisticas: { titulo: 'Estadísticas', descripcion: 'Comportamiento histórico del cuerpo y participación.', nivel: 'concejal' },
+  reportes: { titulo: 'Reportes', descripcion: 'Indicadores consolidados y descarga de resultados.', nivel: 'mesa' },
+  estadisticas: { titulo: 'Estadísticas', descripcion: 'Comportamiento histórico del cuerpo y participación.', nivel: 'mesa' },
   auditoria: { titulo: 'Auditoría', descripcion: 'Registro de acciones realizadas sobre el sistema.', nivel: 'mesa' },
   configuracion: { titulo: 'Configuración', descripcion: 'Parámetros de funcionamiento del sistema de votación.', nivel: 'admin' }
 };
@@ -1222,7 +1335,7 @@ function paginaBloqueada(clave, perfil) {
     <h3>Acceso restringido</h3>
     <p class="muted">La sección <strong>${vista.titulo}</strong> exige el nivel <strong>${PERFILES[vista.nivel].etiqueta}</strong> y tu cuenta tiene el nivel <strong>${PERFILES[perfil].etiqueta}</strong>.</p>
   </div>
-  <p class="muted">Con tu nivel podés votar y consultar la sesión, los concejales, los proyectos y las votaciones. Si necesitás ver <strong>${vista.titulo.toLowerCase()}</strong>, la Presidencia puede darte el nivel desde la sección <em>Usuarios</em>.</p>
+  <p class="muted">Con tu nivel podés votar y consultar la votación en curso, el orden del día, el quórum y las votaciones. Si necesitás acceso a <strong>${vista.titulo.toLowerCase()}</strong>, la Presidencia puede revisar tus permisos desde la sección <em>Usuarios</em>.</p>
   <div class="page-actions">
     <a class="btn" href="/dashboard">Volver al panel</a>
   </div>

@@ -392,6 +392,60 @@ function celdaNivel(usuario) {
   return contenedor;
 }
 
+function abrirCambioPassword(usuario) {
+  const dialogo = el('passwordDialog');
+  const campo = el('newPassword');
+  if (!dialogo || !campo) {
+    return;
+  }
+  dialogo.dataset.userId = String(usuario.id);
+  texto('passwordDialogUser', `${usuario.name} · ${usuario.username}`);
+  campo.value = '';
+  texto('passwordDialogMessage', '');
+  dialogo.showModal();
+  campo.focus();
+}
+
+function celdaCredenciales(usuario) {
+  const contenedor = document.createElement('div');
+  contenedor.className = 'nivel-celula';
+  contenedor.appendChild(boton('Cambiar clave', () => abrirCambioPassword(usuario)));
+  return contenedor;
+}
+
+function conectarCambioPassword() {
+  const dialogo = el('passwordDialog');
+  const formulario = el('passwordForm');
+  const cancelar = el('passwordCancel');
+  const guardar = el('passwordSave');
+  if (!dialogo || !formulario || formulario.dataset.listo) {
+    return;
+  }
+  formulario.dataset.listo = '1';
+  cancelar.addEventListener('click', () => dialogo.close());
+  formulario.addEventListener('submit', async event => {
+    event.preventDefault();
+    const password = el('newPassword').value;
+    const userId = dialogo.dataset.userId;
+    guardar.disabled = true;
+    texto('passwordDialogMessage', 'Actualizando credenciales…');
+    try {
+      await api(`/api/usuarios/${userId}/password`, { method: 'PUT', body: { password } });
+      dialogo.close();
+      el('newPassword').value = '';
+      const mensaje = el('usuariosMensaje');
+      if (mensaje) {
+        mensaje.style.color = '#2fa84f';
+        mensaje.textContent = 'Contraseña actualizada. La contraseña anterior dejó de funcionar.';
+      }
+    } catch (error) {
+      texto('passwordDialogMessage', error.message);
+    } finally {
+      guardar.disabled = false;
+    }
+  });
+}
+
 async function cambiarNivel(usuario, selector) {
   const mensaje = el('usuariosMensaje');
   const elegido = selector.options[selector.selectedIndex].text;
@@ -411,6 +465,7 @@ async function cambiarNivel(usuario, selector) {
 }
 
 async function cargarUsuarios() {
+  conectarCambioPassword();
   const usuarios = await api('/api/usuarios');
   texto('usuariosTotal', usuarios.length);
   texto('usuariosActivos', usuarios.filter(u => u.conectado).length);
@@ -424,8 +479,9 @@ async function cargarUsuarios() {
     u.bloque,
     etiqueta(u.estado, u.conectado ? 'verde' : 'gris'),
     u.votosEmitidos,
-    celdaNivel(u)
-  ])), 8);
+    celdaNivel(u),
+    celdaCredenciales(u)
+  ])), 9);
 }
 
 async function cargarConcejales() {

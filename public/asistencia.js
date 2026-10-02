@@ -20,13 +20,14 @@ if (!codigo) {
 asistenciaForm.addEventListener('submit', async event => {
   event.preventDefault();
   const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
 
   if (!codigo) {
     mostrar('Falta el código de la sesión.', '#d93e4a');
     return;
   }
-  if (!username) {
-    mostrar('Ingresá tu usuario de concejal.', '#d93e4a');
+  if (!username || !password) {
+    mostrar('Ingresá tu usuario y contraseña.', '#d93e4a');
     return;
   }
 
@@ -37,7 +38,7 @@ asistenciaForm.addEventListener('submit', async event => {
     const response = await fetch('/api/asistencia/checkin', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ codigo, username })
+      body: JSON.stringify({ codigo, username, password })
     });
     const data = await response.json();
     if (!response.ok) {
@@ -45,6 +46,7 @@ asistenciaForm.addEventListener('submit', async event => {
     }
     mostrar(`Listo, ${data.name}: tu presencia quedó registrada.`, '#2fa84f');
     asistenciaBtn.textContent = 'Presencia registrada';
+    document.getElementById('password').value = '';
   } catch (error) {
     mostrar(error.message, '#d93e4a');
     asistenciaBtn.disabled = false;

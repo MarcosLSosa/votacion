@@ -40,7 +40,10 @@ rutas de páginas y app.get('*')
 
 ## Autenticación y autorización
 
-- `POST /api/auth/login` valida `username`/`password` contra `councillors`, marca `connected = true`, genera un token aleatorio (`crypto.randomBytes(16)`) y lo guarda en un `Map` en memoria junto al objeto del concejal.
+- `POST /api/auth/login` valida `username`/`password` contra hashes scrypt en `councillors.password`, marca `connected = true`, genera un token aleatorio (`crypto.randomBytes(16)`) y lo guarda en un `Map` en memoria junto al objeto del concejal.
+- `VOTACION_BOOTSTRAP_PASSWORD` (mínimo 12 caracteres) es obligatorio para la primera inicialización y para migrar contraseñas legadas en texto plano. La cuenta `sofia` recibe esta clave y las demás claves legadas se reemplazan por valores aleatorios. En `NODE_ENV=test`, `VOTACION_TEST_PASSWORD` proporciona la clave de semilla para pruebas aisladas.
+- `PUT /api/usuarios/:id/password` permite a Administración asignar una nueva contraseña individual; invalida los tokens previos del usuario y nunca devuelve hashes.
+- `POST /api/asistencia/checkin` valida usuario, contraseña y código QR de la sesión activa; el registro duplicado de presencia se rechaza.
 - El navegador recibe `Set-Cookie: votacion_token=…; HttpOnly; SameSite=Lax; Max-Age=28800`. El frontend además guarda `votacion:token` y `votacion:user` en `localStorage` para reconstruir el perfil tras un refresh.
 - `tokenFrom(req)` acepta el header `x-auth-token` (para pruebas y clientes alternativos) o la cookie. `authMiddleware` responde **401 JSON** en las APIs y `paginaProtegida` responde **302 a `/login`** en las páginas: una API no debe devolver HTML y una navegación no debe mostrar un 401 crudo.
 - `POST /api/auth/logout` borra el token (invalidación inmediata, también para el header) y limpia la cookie con `Max-Age=0`.
@@ -95,11 +98,8 @@ Cosas a saber:
 ## Límites conocidos
 
 - **Sesiones en memoria**: reiniciar el servidor desloguea a todo el mundo; no hay expiración por inactividad ni renovación de token.
-- **Contraseñas en texto plano** en `councillors.password`; no hay hash ni política de claves.
-- **Sin roles**: cualquier concejal logueado puede activar proyectos/sesiones y editar la configuración.
 - **CSRF**: no hay token; `SameSite=Lax` mitiga en parte, pero un POST desde otro sitio sigue siendo un riesgo real.
 - **Varias APIs de lectura son públicas** (listado en `docs/API.md`), pensado para `/screen` y `/asistencia`; conviene cerrarlas o tokenizarlas antes de exponer el panel.
 - `duracion_votacion`, `pantalla_publica` y `notificaciones` **se guardan pero no tienen comportamiento asociado**: no hay timer de votación ni bloqueo de la pantalla pública.
 - No hay cierre automático de votación, exportación CSV, ni imagen QR (se muestra el código como texto + link copiable).
 - Instancia única: sin rate limit, sin HTTPS y sin logs de acceso; pensado para red local o demo.
-

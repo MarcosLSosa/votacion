@@ -8,12 +8,12 @@
  *   npm start &
  *   node tests/navegador-cdp.mjs
  *
- * Variables: APP_URL, CDP_URL, USUARIO, CLAVE.
+ * Variables: APP_URL, CDP_URL, USUARIO, CLAVE, ASISTENCIA.
  */
 const APP = process.env.APP_URL || 'http://localhost:3000';
 const CDP = process.env.CDP_URL || 'http://127.0.0.1:9222';
 const USUARIO = process.env.USUARIO || 'sofia';
-const CLAVE = process.env.CLAVE || '1234';
+const CLAVE = process.env.CLAVE || 'Prueba-segura-2026';
 
 let erroresJS = [];
 let fallos = 0;
@@ -133,6 +133,26 @@ const PAGINAS = [
   let estado = await js(send, sessionId, `(() => ({ path: location.pathname, form: Boolean(document.getElementById('loginForm')) }))()`);
   paso('/login muestra el formulario', estado.path === '/login' && estado.form, JSON.stringify(estado));
 
+  estado = await js(send, sessionId, `(() => {
+    const texto = document.body.innerText;
+    return {
+      credencialesOcultas: !/sofia|juan|maria|carlos|1234/i.test(texto),
+      togglePresente: Boolean(document.getElementById('passwordToggle'))
+    };
+  })()`);
+  paso('el login no expone usuarios ni contraseñas demo', estado.credencialesOcultas, JSON.stringify(estado));
+  paso('el login ofrece control accesible de contraseña', estado.togglePresente, String(estado.togglePresente));
+  estado = await js(send, sessionId, `(() => {
+    const campo = document.getElementById('password');
+    const boton = document.getElementById('passwordToggle');
+    campo.value = 'temporal';
+    boton.click();
+    const visible = campo.type === 'text' && boton.getAttribute('aria-pressed') === 'true';
+    boton.click();
+    return visible && campo.type === 'password' && boton.getAttribute('aria-pressed') === 'false';
+  })()`);
+  paso('mostrar/ocultar contraseña funciona', estado, String(estado));
+
   await js(send, sessionId, loginJs(`${USUARIO}-noexiste`, '0000'));
   await sleep(1200);
   estado = await js(send, sessionId, `(() => ({ path: location.pathname, mensaje: document.getElementById('loginMessage').textContent.trim() }))()`);
@@ -191,6 +211,7 @@ const PAGINAS = [
   await ir(`${APP}${qr.link}`);
   await js(send, sessionId, `(() => {
     document.getElementById('username').value = ${JSON.stringify(process.env.ASISTENCIA || 'leo')};
+    document.getElementById('password').value = ${JSON.stringify(CLAVE)};
     document.getElementById('asistenciaForm').requestSubmit();
   })()`);
   await sleep(1500);
@@ -249,7 +270,7 @@ const PAGINAS = [
     };
   })()`);
   paso('/screen muestra una ficha por concejal', pantalla.path === '/screen' && pantalla.fichas > 0 && pantalla.fichas === pantalla.presentes + pantalla.ausentes, `fichas=${pantalla.fichas}`);
-  paso('el voton verde dice PRESENTE', pantalla.votonTexto === 'PRESENTE' && pantalla.voton.includes('rgb(46, 224, 122)'), `${pantalla.votonTexto} · ${pantalla.voton.slice(0, 46)}`);
+  paso('el boton de presencia usa el verde institucional y dice PRESENTE', pantalla.votonTexto === 'PRESENTE' && pantalla.voton.includes('rgb(79, 148, 123)'), `${pantalla.votonTexto} · ${pantalla.voton.slice(0, 46)}`);
   paso('presentes + ausentes cubren el cuerpo y hay conectados', pantalla.presentes > 0 && pantalla.enLinea >= 0, `presentes=${pantalla.presentes} ausentes=${pantalla.ausentes} enLinea=${pantalla.enLinea}`);
   paso('la dona usa conic-gradient con los conteos', pantalla.donut.startsWith('conic-gradient'), pantalla.donut);
   paso('barras de presencia y voton global verde', /%$/.test(pantalla.barra) && Number.parseFloat(pantalla.barra) > 0 && /PRESENT/.test(pantalla.big), `${pantalla.barra} · ${pantalla.big}`);
@@ -278,4 +299,3 @@ const PAGINAS = [
   console.error('FALLO:', err.message);
   process.exit(1);
 });
-

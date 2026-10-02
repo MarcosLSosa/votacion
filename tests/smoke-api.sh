@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # Prueba de humo de rutas y API del panel de votación.
-# Uso:  APP_URL=http://localhost:3000 USUARIO=sofia CLAVE=1234 bash tests/smoke-api.sh
+# Uso:  APP_URL=http://localhost:3000 USUARIO=sofia CLAVE=Prueba-segura-2026 bash tests/smoke-api.sh
 # Requiere el servidor levantado (npm start) y curl.
 set -uo pipefail
 
 APP_URL="${APP_URL:-http://localhost:3000}"
 USUARIO="${USUARIO:-sofia}"
-CLAVE="${CLAVE:-1234}"
+CLAVE="${CLAVE:-${VOTACION_TEST_PASSWORD:-Prueba-segura-2026}}"
 JAR="$(mktemp)"
 FALLOS=0
 PASOS=0
@@ -64,7 +64,7 @@ jar_de() { # usuario clave -> archivo de cookies
 
 PAGINAS=(/dashboard /usuarios /concejales /bloques /municipios /sesiones /asistencia-qr /quorum /orden-del-dia /proyectos /votaciones /reportes /estadisticas /auditoria /configuracion)
 # Páginas que sólo Mesa o Administrador pueden abrir.
-PAGINAS_MESA=(/sesiones /asistencia-qr /auditoria)
+PAGINAS_MESA=(/concejales /bloques /municipios /sesiones /asistencia-qr /proyectos /reportes /estadisticas /auditoria)
 PAGINAS_ADMIN=(/usuarios /configuracion)
 
 echo "== 1. Rutas publicas =="
@@ -116,8 +116,38 @@ done
 contenido /dashboard 'class="vote-panel'
 contenido /asistencia-qr 'id="qrCodigo"'
 
+echo "== 4b. Acceso de concejal =="
+JAR_CONCEJAL=$(jar_de maria "$CLAVE")
+PAGINAS_CONCEJAL=(/dashboard /quorum /orden-del-dia /votaciones)
+for p in "${PAGINAS_CONCEJAL[@]}"; do
+  paso "GET $p como concejal" "$(estado "$p" -b "$JAR_CONCEJAL")" 200
+  contenido "$p" 'nav-link active' "$JAR_CONCEJAL"
+done
+for p in "${PAGINAS_MESA[@]}" "${PAGINAS_ADMIN[@]}"; do
+  paso "GET $p como concejal" "$(estado "$p" -b "$JAR_CONCEJAL")" 403
+done
+nav_concejal=$(curl -s -b "$JAR_CONCEJAL" "$APP_URL/dashboard")
+for p in /dashboard /quorum /orden-del-dia /votaciones; do
+  PASOS=$((PASOS + 1))
+  if grep -q "href=\"$p\"" <<<"$nav_concejal"; then
+    printf '  ok    %-48s visible en nav de concejal\n' "$p"
+  else
+    printf '  FALLA %-48s falta en nav de concejal\n' "$p"
+    FALLOS=$((FALLOS + 1))
+  fi
+done
+for p in /concejales /bloques /municipios /sesiones /asistencia-qr /proyectos /reportes /estadisticas /auditoria /usuarios /configuracion; do
+  PASOS=$((PASOS + 1))
+  if grep -q "href=\"$p\"" <<<"$nav_concejal"; then
+    printf '  FALLA %-48s no debería aparecer en nav de concejal\n' "$p"
+    FALLOS=$((FALLOS + 1))
+  else
+    printf '  ok    %-48s oculto en nav de concejal\n' "$p"
+  fi
+done
+
 echo "== 5. API de lectura =="
-for r in /api/session /api/projects /api/history /api/sessions /api/order-of-day /api/quorum /api/attendance /api/reports /api/stats /api/votaciones /api/overview /api/usuarios /api/councillors /api/bloques /api/municipios /api/screen; do
+for r in /api/session /api/projects /api/history /api/sessions /api/order-of-day /api/quorum /api/attendance /api/reports /api/stats /api/votaciones /api/overview /api/councillors /api/bloques /api/municipios /api/screen; do
   paso "GET $r" "$(estado $r)" 200
 done
 contenido '/api/screen' '"quorumAlcanzado"'
@@ -128,14 +158,22 @@ paso "GET /api/project/1" "$(estado /api/project/1)" 200
 paso "GET /api/project/9999" "$(estado /api/project/9999)" 404
 
 echo "== 6. API protegida sin token =="
-for r in /api/auth/me /api/auditoria /api/asistencia /api/configuracion; do
+for r in /api/auth/me /api/usuarios /api/auditoria /api/asistencia /api/configuracion; do
   paso "GET $r sin token" "$(estado $r)" 401
 done
 
 echo "== 7. API protegida con token =="
-for r in /api/auth/me /api/auditoria /api/asistencia /api/asistencia/qr /api/configuracion; do
+for r in /api/auth/me /api/usuarios /api/auditoria /api/asistencia /api/asistencia/qr /api/configuracion; do
   paso "GET $r con token" "$(estado $r "${AUTH[@]}")" 200
 done
+usuarios=$(curl -s "${AUTH[@]}" "$APP_URL/api/usuarios")
+PASOS=$((PASOS + 1))
+if grep -Eq '"password"|scrypt' <<<"$usuarios"; then
+  printf '  FALLA %-48s la API expone material de autenticacion\n' 'GET /api/usuarios'
+  FALLOS=$((FALLOS + 1))
+else
+  printf '  ok    %-48s no expone contraseñas ni hashes\n' 'GET /api/usuarios'
+fi
 
 echo "== 8. Votacion =="
 paso "POST /api/vote opcion invalida" \
@@ -153,8 +191,33 @@ fi
 echo "== 9. Asistencia QR =="
 paso "POST checkin codigo invalido" \
   "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d '{"codigo":"DEADBEEF","username":"leo"}')" 400
-paso "POST checkin usuario inexistente" \
-  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d "{\"codigo\":\"$CODIGO\",\"username\":\"noexiste\"}")" 404
+paso "POST checkin sin clave no autentica" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\"}")" 401
+paso "POST checkin no permite suplantar concejal" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"incorrecta\"}")" 401
+paso "POST checkin credenciales propias" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 200
+paso "POST checkin duplicado" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/asistencia/checkin" -H 'Content-Type: application/json' -d "{\"codigo\":\"$CODIGO\",\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 409
+
+echo "== 9b. Credenciales individuales =="
+JAR_LEO=$(jar_de leo "$CLAVE")
+paso "PUT contraseña corta" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$APP_URL/api/usuarios/12/password" -H 'Content-Type: application/json' "${AUTH[@]}" -d '{"password":"short"}')" 400
+paso "PUT contraseña sin rol administrador" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$APP_URL/api/usuarios/12/password" -H 'Content-Type: application/json' -b "$JAR_CONCEJAL" -d '{"password":"Clave-Individual-2026"}')" 403
+CLAVE_TEMPORAL='Credencial-Temporal-2026'
+paso "PUT restablecer contraseña" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$APP_URL/api/usuarios/12/password" -H 'Content-Type: application/json' "${AUTH[@]}" -d "{\"password\":\"$CLAVE_TEMPORAL\"}")" 200
+paso "POST login rechaza clave anterior" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/auth/login" -H 'Content-Type: application/json' -d "{\"username\":\"leo\",\"password\":\"$CLAVE\"}")" 401
+paso "PUT contraseña invalida sesiones anteriores" \
+  "$(estado /api/auth/me -b "$JAR_LEO")" 401
+JAR_LEO=$(jar_de leo "$CLAVE_TEMPORAL")
+paso "POST login acepta clave individual nueva" \
+  "$(estado /api/auth/me -b "$JAR_LEO")" 200
+paso "PUT restaurar contraseña del test" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X PUT "$APP_URL/api/usuarios/12/password" -H 'Content-Type: application/json' "${AUTH[@]}" -d "{\"password\":\"$CLAVE\"}")" 200
 
 echo "== 10. Configuracion =="
 actual=$(curl -s "${AUTH[@]}" "$APP_URL/api/configuracion")
@@ -180,7 +243,7 @@ paso "POST /api/auth/logout" "$(curl -s -o /dev/null -w '%{http_code}' -X POST -
 paso "GET /auditoria tras logout" "$(estado /auditoria -b "$JAR")" 302
 paso "GET /api/auth/me con token revocado" "$(estado /api/auth/me "${AUTH[@]}")" 401
 
-rm -f "$JAR"
+rm -f "$JAR" "$JAR_CONCEJAL" "$JAR_LEO"
 echo
 if [[ "$FALLOS" -eq 0 ]]; then
   echo "TODO OK: $PASOS verificaciones"
@@ -188,4 +251,3 @@ else
   echo "$FALLOS FALLAS de $PASOS verificaciones"
   exit 1
 fi
-

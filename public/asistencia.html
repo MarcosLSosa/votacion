@@ -9,15 +9,30 @@
 <body class="login-body">
   <div class="login-shell">
     <form class="login-card" id="asistenciaForm" novalidate>
-      <h2>Marca tu asistencia</h2>
-      <p id="asistenciaSesion">Sesión del cuerpo legislativo.</p>
-      <label>
+      <header class="login-brand">
+        <span class="login-brand-icon" aria-hidden="true">🏛</span>
+        <span>
+          <strong>CONCEJO DELIBERANTE</strong>
+          <small>Registro de asistencia</small>
+        </span>
+      </header>
+      <div class="login-heading">
+        <span class="login-eyebrow">Sesión activa</span>
+        <h1>Marcar asistencia</h1>
+        <p id="asistenciaSesion">Confirmá tu identidad para registrar presencia.</p>
+      </div>
+      <label for="username">
         Usuario
-        <input type="text" id="username" autocomplete="username" />
+        <input type="text" id="username" name="username" autocomplete="username" autocapitalize="none" spellcheck="false" required />
+      </label>
+      <label for="password">
+        Contraseña
+        <input type="password" id="password" name="password" autocomplete="current-password" required />
       </label>
       <div class="login-help">Código de la sesión: <strong id="codigoLabel">—</strong></div>
-      <button id="asistenciaBtn" type="submit">Marcar presencia</button>
-      <div id="asistenciaMensaje" class="message"></div>
+      <button id="asistenciaBtn" type="submit">Confirmar presencia</button>
+      <div id="asistenciaMensaje" class="message" role="status" aria-live="polite"></div>
+      <div class="login-security"><span aria-hidden="true">●</span> La asistencia se registra en tu nombre</div>
     </form>
   </div>
   <script src="/asistencia.js"></script>
