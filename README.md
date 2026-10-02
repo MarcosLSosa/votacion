@@ -33,6 +33,21 @@ npm start
 
 No uses `NODE_ENV=test` ni `VOTACION_TEST_PASSWORD` fuera de pruebas.
 
+### Probar el flujo sin datos de ejemplo
+
+Para empezar con una base vacía (excepto la cuenta administradora inicial `sofia`) usá una ruta nueva para `VOTACION_DB`:
+
+```powershell
+$env:NODE_ENV = 'test'
+$env:VOTACION_TEST_PASSWORD = 'Clave-local-de-12-caracteres'
+$env:VOTACION_EMPTY_START = '1'
+$env:VOTACION_DB = Join-Path $env:TEMP 'votacion-desde-cero.db'
+$env:PORT = '3000'
+npm start
+```
+
+Ingresá como `sofia` con esa clave. Después creá bloques y cuentas desde **Bloques/Usuarios**, y convocatorias/proyectos desde **Sesiones/Proyectos**. No uses `VOTACION_EMPTY_START` fuera de `NODE_ENV=test`; en producción la app nunca crea automáticamente la cuenta inicial.
+
 ### Despliegue detrás de HTTPS
 
 La aplicación espera un proxy inverso que termine TLS (por ejemplo, Nginx o el proxy de la plataforma). En producción exigí HTTPS en el proxy, bloqueá el acceso público directo al puerto de Node y configurá el número exacto de proxies confiables:

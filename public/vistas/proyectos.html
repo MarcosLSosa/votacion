@@ -1,8 +1,38 @@
 <div class="kpi-grid">
   <div class="kpi"><strong id="proyectosTotal">0</strong><span>Proyectos</span></div>
+  <div class="kpi"><strong id="proyectosPendientes">0</strong><span>Pendientes</span></div>
   <div class="kpi"><strong id="proyectosAbiertos">0</strong><span>En votación</span></div>
   <div class="kpi"><strong id="proyectosCerrados">0</strong><span>Finalizados</span></div>
 </div>
+
+<details class="table-card create-panel">
+  <summary>Dar de alta proyecto para votación</summary>
+  <p class="muted">Mesa o Administración carga el expediente. Queda abierto, sin votos, hasta que se active para tratarlo.</p>
+  <form id="crearProyectoForm" class="config-form">
+    <label>Número de expediente
+      <input name="project" maxlength="80" placeholder="Ordenanza Nº 12/2026" required />
+    </label>
+    <label>Tipo
+      <select name="type" required>
+        <option value="Ordenanza">Ordenanza</option>
+        <option value="Resolución">Resolución</option>
+        <option value="Declaración">Declaración</option>
+        <option value="Comunicación">Comunicación</option>
+      </select>
+    </label>
+    <label class="span-all">Título
+      <input name="title" maxlength="200" required />
+    </label>
+    <label class="span-all">Descripción
+      <textarea name="description" rows="3" maxlength="2000"></textarea>
+    </label>
+    <label>Sesión (si todavía no hay una activa)
+      <input name="sessionType" maxlength="120" placeholder="Sesión Ordinaria" />
+    </label>
+    <p class="message" id="crearProyectoMensaje" role="status" aria-live="polite"></p>
+    <div class="page-actions"><button class="btn" type="submit">Crear proyecto</button></div>
+  </form>
+</details>
 
 <div class="table-card">
   <div class="table-head">

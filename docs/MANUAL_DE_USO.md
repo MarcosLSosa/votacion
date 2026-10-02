@@ -8,20 +8,30 @@ La sesión se conserva si se reinicia el servidor y vence tras **30 minutos sin 
 
 Los concejales sólo tienen en su menú las cuatro vistas de uso habitual: **Votación en curso, Orden del Día, Quórum y Votaciones**. Las páginas de consulta ampliada requieren Mesa; Usuarios y Configuración requieren Administración.
 
+## Preparar una sesión desde cero
+
+1. **Administración (Sofía)** entra a **Bloques** y da de alta los bloques; luego entra a **Usuarios** y crea cada concejal con nombre, cargo, usuario, contraseña inicial, nivel **Concejal** y bloque. La clave inicial tiene al menos 12 caracteres; se comparte por un canal seguro.
+2. **Mesa (Juan) o Administración** entra a **Sesiones**, crea la convocatoria con fecha y quórum y la activa. La sesión debe existir antes de los proyectos para que queden asociados.
+3. **Mesa o Administración** entra a **Proyectos**, registra expediente, tipo, título y descripción. La nueva orden aparece también en el **Orden del Día**, sin votos.
+4. Cuando comienza el tratamiento, Mesa o Administración pulsa **Activar** junto al expediente. Arranca el tiempo configurado en Configuración y los concejales pueden entrar con sus propias claves para votar una sola vez.
+5. Para registrar asistencia, Mesa o Administración abre **Asistencia QR** y comparte el QR; cada concejal marca presencia desde su teléfono con usuario y contraseña.
+
+El perfil **Concejal** no puede crear ni gestionar estos registros. Administración administra las cuentas y los bloques; Mesa organiza las convocatorias, proyectos y tratamiento. Administración también puede realizar las tareas de Mesa. Los permisos se verifican en el servidor, no sólo ocultando botones.
+
 ## Panel: qué hace cada página
 
 | URL | Página | Para qué sirve |
 | --- | --- | --- |
 | `/dashboard` | Votación en curso | Proyecto activo, contadores en vivo, tiempo restante, concejales conectados y los botones **AFIRMATIVO / NEGATIVO / ABSTENCIÓN**. Abajo, la lista de proyectos abiertos con **Activar** para iniciar la votación. |
-| `/usuarios` | Usuarios | Alta vista del personal: usuario, email derivado, bloque, estado y votos emitidos. KPIs de total/activos/inactivos. |
+| `/usuarios` | Usuarios | Administración crea cuentas, asigna nivel/bloque y restablece claves; consulta usuario, estado y votos. |
 | `/concejales` | Concejales | Cuerpo completo con rol, bloque, presencia y voto sobre el proyecto activo. |
-| `/bloques` | Bloques | Bloques con sigla, color, cantidad de miembros y chips con los nombres; KPIs de miembros y presentes. |
+| `/bloques` | Bloques | Administración da de alta bloques; Mesa consulta sigla, color, integrantes y presentes. |
 | `/municipios` | Municipios | Municipios del distrito, habitantes y porcentaje sobre el total. |
-| `/sesiones` | Sesiones | Sesiones convocadas, estado, quórum requerido y **Activar** para tomar una como activa. |
+| `/sesiones` | Sesiones | Mesa o Administración crea convocatorias, consulta quórum y activa una sesión. |
 | `/asistencia-qr` | Asistencia QR | Código e imagen QR de la sesión activa, link para compartirlo y las últimas marcas de presencia. Permite descargar/imprimir el QR y copiar su link. |
 | `/quorum` | Quórum | Presentes, ausentes, quórum exigido y si está alcanzado; tabla por concejal. |
 | `/orden-del-dia` | Orden del Día | Puntos del día con su estado y acceso rápido para activar el proyecto relacionado. |
-| `/proyectos` | Proyectos | Expedientes ingresados, tipo, autor y estado de votación. |
+| `/proyectos` | Proyectos | Mesa o Administración crea expedientes y activa una votación; ve tipo, autor, estado y conteos. |
 | `/votaciones` | Votaciones | Detalle voto a voto por proyecto: quién votó qué y quiénes están pendientes. |
 | `/reportes` | Reportes | Totales de proyectos, aprobados/rechazados y participación; tabla de resultados y descarga CSV de votaciones. |
 | `/estadisticas` | Estadísticas | Votos históricos, tasa de participación y barras por tipo de voto. |

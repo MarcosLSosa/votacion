@@ -483,6 +483,29 @@ function updateSession(id, data) {
 }
 
 function seedDatabase() {
+  if (process.env.NODE_ENV === 'test' && process.env.VOTACION_EMPTY_START === '1') {
+    const administratorCount = db.prepare('SELECT COUNT(*) AS count FROM councillors').get().count;
+    if (administratorCount === 0) {
+      if (!TEST_PASSWORD) {
+        throw new Error('Set VOTACION_TEST_PASSWORD when using VOTACION_EMPTY_START.');
+      }
+      db.prepare(`
+        INSERT INTO councillors (id, name, role, username, password, connected, votes, perfil)
+        VALUES (1, 'Sofía Pérez', 'Presidenta', 'sofia', ?, 0, '{}', 'admin')
+      `).run(passwordInicial('sofia'));
+    }
+    const configDefaults = [
+      ['municipio_sede', ''],
+      ['mayoria', 'Simple'],
+      ['duracion_votacion', '5'],
+      ['pantalla_publica', '1'],
+      ['notificaciones', '0']
+    ];
+    const saveConfig = db.prepare('INSERT OR IGNORE INTO configuracion (clave, valor) VALUES (?, ?)');
+    configDefaults.forEach(([key, value]) => saveConfig.run(key, value));
+    return;
+  }
+
   if (process.env.NODE_ENV === 'production') {
     const requiredTables = ['councillors', 'projects', 'sessions', 'bloques', 'municipios', 'configuracion'];
     const emptyTables = requiredTables.filter(table => db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count === 0);
@@ -935,8 +958,54 @@ votingTimer.unref();
 app.get('/api/projects', authMiddleware, (req, res) => {
   res.json(getAllProjects().map(project => ({
     ...project,
+    active: project.status === 'abierta' && project.id === activeProjectId,
     counts: computeCounts(project)
   })));
+});
+
+app.post('/api/projects', authMiddleware, requirePerfil('mesa'), (req, res) => {
+  const body = req.body || {};
+  const project = typeof body.project === 'string' ? body.project.trim() : '';
+  const title = typeof body.title === 'string' ? body.title.trim() : '';
+  const type = typeof body.type === 'string' ? body.type.trim() : '';
+  const description = typeof body.description === 'string' ? body.description.trim() : '';
+  if (!project || project.length > 80 || !title || title.length > 200 || !type || type.length > 80 || description.length > 2000) {
+    return res.status(400).json({ error: 'Completá expediente, título y tipo; revisá los límites de longitud.' });
+  }
+  if (db.prepare('SELECT id FROM projects WHERE lower(project) = lower(?)').get(project)) {
+    return res.status(409).json({ error: 'Ya existe un expediente con ese identificador.' });
+  }
+  const councillors = getAllCouncillors();
+  if (!councillors.length) {
+    return res.status(409).json({ error: 'Creá al menos un concejal antes de cargar un proyecto.' });
+  }
+
+  const now = new Date();
+  const activeSession = getActiveSession();
+  const sessionType = activeSession ? activeSession.name : String(body.sessionType || '').trim();
+  if (!sessionType || sessionType.length > 120) {
+    return res.status(400).json({ error: 'Indicá la sesión a la que pertenece el proyecto.' });
+  }
+  const projectRecord = createProject({
+    project,
+    title,
+    description,
+    type,
+    startedBy: req.user.name,
+    startedAt: now.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' }),
+    startedAtFull: now.toLocaleString('es-AR'),
+    status: 'abierta',
+    sessionType,
+    totalCouncillors: councillors.length,
+    counts: { afirmativo: 0, negativo: 0, abstencion: 0 }
+  });
+  db.prepare('INSERT INTO order_of_day (title, status, presenter) VALUES (?, ?, ?)')
+    .run(project, 'Pendiente', req.user.name);
+  if (activeSession) {
+    db.prepare('UPDATE sessions SET projectCount = projectCount + 1 WHERE id = ?').run(activeSession.id);
+  }
+  audit(req.user.username, 'Proyecto creado', `${project} • ${title}`);
+  res.status(201).json({ project: projectRecord });
 });
 
 app.get('/api/history', authMiddleware, requirePerfil('mesa'), (req, res) => {
@@ -950,6 +1019,35 @@ app.get('/api/history', authMiddleware, requirePerfil('mesa'), (req, res) => {
 
 app.get('/api/sessions', authMiddleware, requirePerfil('mesa'), (req, res) => {
   res.json(getAllSessions());
+});
+
+app.post('/api/sessions', authMiddleware, requirePerfil('mesa'), (req, res) => {
+  const body = req.body || {};
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const date = typeof body.date === 'string' ? body.date.trim() : '';
+  const quorumRequired = Number(body.quorumRequired);
+  const active = body.active === true;
+  const councillorCount = getAllCouncillors().length;
+  if (!name || name.length > 120 || !/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00`))) {
+    return res.status(400).json({ error: 'Ingresá un nombre de sesión y una fecha válida.' });
+  }
+  if (!Number.isInteger(quorumRequired) || quorumRequired < 1 || quorumRequired > councillorCount) {
+    return res.status(400).json({ error: `El quórum debe ser un número entre 1 y ${councillorCount}.` });
+  }
+  const session = createSession({
+    name,
+    date,
+    status: 'abierta',
+    quorumRequired,
+    projectCount: db.prepare('SELECT COUNT(*) AS count FROM projects WHERE sessionType = ?').get(name).count,
+    active
+  });
+  if (active) {
+    setConfig('qr_codigo', '');
+    setConfig('qr_sesion', '');
+  }
+  audit(req.user.username, 'Sesión creada', `${name} • ${date}${active ? ' • activada' : ''}`);
+  res.status(201).json({ session });
 });
 
 app.get('/api/order-of-day', authMiddleware, (req, res) => {
@@ -1072,6 +1170,35 @@ app.get('/api/bloques', authMiddleware, requirePerfil('mesa'), (req, res) => {
   res.json(getBloques());
 });
 
+app.post('/api/bloques', authMiddleware, requirePerfil('admin'), (req, res) => {
+  const body = req.body || {};
+  const nombre = typeof body.nombre === 'string' ? body.nombre.trim() : '';
+  const sigla = typeof body.sigla === 'string' ? body.sigla.trim() : '';
+  const color = typeof body.color === 'string' ? body.color.trim() : '#3569a8';
+  const fundado = typeof body.fundado === 'string' ? body.fundado.trim() : '';
+  if (!nombre || nombre.length > 100 || !sigla || sigla.length > 12 || fundado.length > 20 || !/^#[0-9a-fA-F]{6}$/.test(color)) {
+    return res.status(400).json({ error: 'Completá nombre y sigla, y elegí un color hexadecimal válido.' });
+  }
+  if (db.prepare('SELECT id FROM bloques WHERE lower(nombre) = lower(?) OR lower(sigla) = lower(?)').get(nombre, sigla)) {
+    return res.status(409).json({ error: 'Ya existe un bloque con ese nombre o sigla.' });
+  }
+  const result = db.prepare('INSERT INTO bloques (nombre, sigla, color, fundado) VALUES (?, ?, ?, ?)')
+    .run(nombre, sigla, color, fundado);
+  audit(req.user.username, 'Bloque creado', `${nombre} (${sigla})`);
+  res.status(201).json({
+    bloque: {
+      id: Number(result.lastInsertRowid),
+      nombre,
+      sigla,
+      color,
+      fundado,
+      miembros: 0,
+      presentes: 0,
+      concejales: []
+    }
+  });
+});
+
 app.get('/api/municipios', authMiddleware, requirePerfil('mesa'), (req, res) => {
   const municipios = db.prepare('SELECT * FROM municipios ORDER BY id').all();
   const total = municipios.reduce((sum, municipio) => sum + (municipio.habitantes || 0), 0);
@@ -1102,6 +1229,56 @@ app.get('/api/usuarios', authMiddleware, requirePerfil('admin'), (req, res) => {
     estado: councillor.connected ? 'Activo' : 'Inactivo',
     votosEmitidos: Object.keys(councillor.votes || {}).length
   })));
+});
+
+app.post('/api/usuarios', authMiddleware, requirePerfil('admin'), (req, res) => {
+  const body = req.body || {};
+  const name = typeof body.name === 'string' ? body.name.trim() : '';
+  const role = typeof body.role === 'string' ? body.role.trim() : '';
+  const username = typeof body.username === 'string' ? body.username.trim().toLowerCase() : '';
+  const password = typeof body.password === 'string' ? body.password : '';
+  const perfil = typeof body.perfil === 'string' ? body.perfil.trim().toLowerCase() : 'concejal';
+  const bloqueId = body.bloqueId === '' || body.bloqueId === null || body.bloqueId === undefined
+    ? null
+    : Number(body.bloqueId);
+  if (
+    !name || name.length > 120 ||
+    !role || role.length > 80 ||
+    !/^[a-z0-9._-]{3,40}$/.test(username) ||
+    password.length < 12 || password.length > 256 ||
+    !PERFILES[perfil]
+  ) {
+    return res.status(400).json({ error: 'Revisá nombre, cargo, usuario (3–40 caracteres), nivel y contraseña (12–256 caracteres).' });
+  }
+  if (bloqueId !== null && (!Number.isInteger(bloqueId) || !db.prepare('SELECT id FROM bloques WHERE id = ?').get(bloqueId))) {
+    return res.status(400).json({ error: 'El bloque seleccionado no existe.' });
+  }
+  if (getCouncillorByUsername(username)) {
+    return res.status(409).json({ error: 'Ya existe una cuenta con ese nombre de usuario.' });
+  }
+
+  const result = db.prepare(`
+    INSERT INTO councillors (name, role, username, password, connected, votes, bloque_id, perfil)
+    VALUES (?, ?, ?, ?, 0, '{}', ?, ?)
+  `).run(name, role, username, hashPassword(password), bloqueId, perfil);
+  const councillorCount = getAllCouncillors().length;
+  db.prepare('UPDATE projects SET totalCouncillors = ?').run(councillorCount);
+  db.prepare('UPDATE sessions SET quorumRequired = MIN(quorumRequired, ?) WHERE quorumRequired > ?')
+    .run(councillorCount, councillorCount);
+  audit(req.user.username, 'Usuario creado', `${name} (${username}) • ${PERFILES[perfil].etiqueta}`);
+  res.status(201).json({
+    usuario: {
+      id: Number(result.lastInsertRowid),
+      name,
+      role,
+      username,
+      perfil,
+      nivel: PERFILES[perfil].etiqueta,
+      bloque: bloqueName(bloqueId),
+      estado: 'Inactivo',
+      votosEmitidos: 0
+    }
+  });
 });
 
 /*

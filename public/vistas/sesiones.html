@@ -4,6 +4,28 @@
   <div class="kpi"><strong id="sesionQuorum">0</strong><span>Quórum requerido</span></div>
 </div>
 
+<details class="table-card create-panel">
+  <summary>Crear convocatoria</summary>
+  <p class="muted">Mesa o Administración registra la sesión. Podés dejarla pendiente y activarla cuando corresponda.</p>
+  <form id="crearSesionForm" class="config-form">
+    <label>Nombre de sesión
+      <input name="name" maxlength="120" placeholder="Sesión Ordinaria" required />
+    </label>
+    <label>Fecha
+      <input name="date" type="date" required />
+    </label>
+    <label>Quórum requerido
+      <input name="quorumRequired" type="number" min="1" required />
+    </label>
+    <label class="check">
+      <input name="active" type="checkbox" checked />
+      Activar al crear
+    </label>
+    <p class="message" id="crearSesionMensaje" role="status" aria-live="polite"></p>
+    <div class="page-actions"><button class="btn" type="submit">Crear sesión</button></div>
+  </form>
+</details>
+
 <div class="table-card">
   <div class="table-head">
     <h3>Convocatorias</h3>

@@ -919,6 +919,7 @@ nav a:hover {
 
   .config-form input,
   .config-form select,
+  .config-form textarea,
   .nivel-selector {
     min-height: 46px;
     font-size: 16px;
@@ -1597,13 +1598,48 @@ nav a:hover {
 }
 
 .config-form input,
-.config-form select {
+.config-form select,
+.config-form textarea {
   padding: 12px 14px;
   border-radius: 14px;
   border: 1px solid #dce3f0;
   font-size: 0.98rem;
   background: white;
   color: var(--text);
+}
+
+.config-form textarea {
+  resize: vertical;
+  font: inherit;
+}
+
+.config-form .span-all {
+  grid-column: 1 / -1;
+}
+
+.create-panel {
+  margin-bottom: 20px;
+}
+
+.create-panel summary {
+  color: #1f3c8b;
+  font-weight: 750;
+  cursor: pointer;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+
+.create-panel[hidden] {
+  display: none;
+}
+
+.create-panel > .muted {
+  margin: 8px 0 18px;
+}
+
+.create-panel .config-form {
+  margin-top: 16px;
 }
 
 .config-form input:disabled {

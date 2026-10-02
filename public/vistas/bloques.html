@@ -4,6 +4,27 @@
   <div class="kpi"><strong id="bloquesPresentes">0</strong><span>Presentes</span></div>
 </div>
 
+<details class="table-card create-panel" id="crearBloquePanel">
+  <summary>Crear bloque político</summary>
+  <p class="muted">Alta de bloques a cargo de Administración. Luego podrás asignarlos a cada integrante desde Usuarios.</p>
+  <form id="crearBloqueForm" class="config-form">
+    <label>Nombre del bloque
+      <input name="nombre" maxlength="100" required />
+    </label>
+    <label>Sigla
+      <input name="sigla" maxlength="12" required />
+    </label>
+    <label>Color institucional
+      <input name="color" type="color" value="#3569a8" required />
+    </label>
+    <label>Año de conformación
+      <input name="fundado" maxlength="20" inputmode="numeric" />
+    </label>
+    <p class="message" id="crearBloqueMensaje" role="status" aria-live="polite"></p>
+    <div class="page-actions"><button class="btn" type="submit">Crear bloque</button></div>
+  </form>
+</details>
+
 <div class="table-card">
   <div class="table-head">
     <h3>Bloques políticos</h3>

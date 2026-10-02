@@ -27,7 +27,7 @@ $env:VOTACION_DB = Join-Path $env:TEMP 'votacion-api-test-unica.db'
 & 'C:\Program Files\Git\bin\bash.exe' tests/smoke-api.sh
 ```
 
-La batería comprueba rutas públicas/protegidas, permisos por nivel, login/logout, CSRF y origen, APIs restringidas, voto duplicado, check-in QR con y sin credenciales, rate limiting, asignación de contraseñas e invalidación de sesiones, ausencia de hashes en respuestas, QR PNG, exportaciones, configuración, auditoría y cierre al vencer el plazo. Devuelve `TODO OK: N verificaciones` con exit 0 o detalla los fallos con exit 1.
+La batería comprueba rutas públicas/protegidas, permisos por nivel, login/logout, CSRF y origen, APIs restringidas, alta/duplicados de bloques, usuarios, sesiones y proyectos, propagación de proyectos al orden del día y activación, voto duplicado, check-in QR con y sin credenciales, rate limiting, asignación de contraseñas e invalidación de sesiones, ausencia de hashes en respuestas, QR PNG, exportaciones, configuración, auditoría y cierre al vencer el plazo. Devuelve `TODO OK: N verificaciones` con exit 0 o detalla los fallos con exit 1.
 
 ## 2. Flujo en navegador (`tests/navegador-cdp.mjs`)
 
@@ -58,7 +58,7 @@ $env:ASISTENCIA = 'leo'
 node tests/navegador-cdp.mjs
 ```
 
-El flujo cubre login real e inválido, control de visibilidad de contraseña, las 15 páginas, configuración, asistencia QR autenticada, imagen QR, `/screen`, almacenamiento seguro de sesión, logout y errores de consola. Si el usuario indicado en `ASISTENCIA` ya registró presencia en esa sesión, elegí otro usuario sin marca. `USUARIO=raul` permite probar el camino de voto si aún no votó el proyecto activo.
+El flujo cubre login real e inválido, control de visibilidad de contraseña, las 15 páginas, configuración, asistencia QR autenticada, imagen QR, `/screen`, almacenamiento seguro de sesión, logout y errores de consola. Si el usuario indicado en `ASISTENCIA` ya registró presencia en esa sesión, elegí otro usuario sin marca. `USUARIO=raul` permite probar el camino de voto si aún no votó el proyecto activo. Para una inspección manual empezando sin datos ficticios, usá `VOTACION_EMPTY_START=1` según el README; este script CDP estándar espera la semilla completa.
 
 ## Notas
 

@@ -223,6 +223,10 @@ async function cargarCabecera() {
       texto('sessionType', `${activa.name} • ${activa.date}`);
     }
   } catch (error) {
+    if (error.message === 'No hay un proyecto en votación.') {
+      texto('sessionType', 'Sin convocatoria activa');
+      return;
+    }
     console.error(error);
   }
 }
@@ -269,6 +273,13 @@ async function cargarDashboard() {
     if (message) {
       message.textContent = error.message;
     }
+    document.querySelectorAll('.vote-btn, .mobile-btn').forEach(button => {
+      button.disabled = true;
+    });
+    if (error.message !== 'No hay un proyecto en votación.') {
+      console.error(error);
+    }
+    await cargarProyectosDashboard();
     return;
   }
 
@@ -339,8 +350,14 @@ async function cargarProyectosDashboard() {
 
     const acciones = document.createElement('div');
     acciones.className = 'project-item-actions';
-    acciones.appendChild(project.status === 'abierta' ? etiqueta('En votación', 'verde') : etiqueta('Finalizado', 'gris'));
-    if (puedeGestionar() && project.status === 'abierta') {
+    acciones.appendChild(
+      project.active
+        ? etiqueta('En votación', 'verde')
+        : project.status === 'abierta'
+          ? etiqueta('Pendiente', 'gris')
+          : etiqueta('Finalizado', 'gris')
+    );
+    if (puedeGestionar() && project.status === 'abierta' && !project.active) {
       acciones.appendChild(boton('Activar', async () => {
         try {
           await api(`/api/project/${project.id}/activate`, { method: 'POST' });
@@ -494,8 +511,60 @@ async function cambiarNivel(usuario, selector) {
   await cargarUsuarios();
 }
 
+function establecerMensajeFormulario(id, mensaje, error = false) {
+  const nodo = el(id);
+  if (!nodo) {
+    return;
+  }
+  nodo.style.color = error ? '#b02530' : '#1d7a37';
+  nodo.textContent = mensaje;
+}
+
+async function actualizarOpcionesBloque(select, seleccion = '') {
+  if (!select) {
+    return;
+  }
+  const bloques = await api('/api/bloques');
+  select.replaceChildren(new Option('Sin bloque', ''));
+  bloques.forEach(bloque => select.add(new Option(`${bloque.nombre} (${bloque.sigla})`, String(bloque.id))));
+  select.value = seleccion;
+}
+
+function conectarCreacionUsuario() {
+  const form = el('crearUsuarioForm');
+  if (!form || form.dataset.listo) {
+    return;
+  }
+  form.dataset.listo = '1';
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const submit = form.querySelector('[type="submit"]');
+    const data = new FormData(form);
+    const body = Object.fromEntries(data.entries());
+    body.bloqueId = body.bloqueId || null;
+    submit.disabled = true;
+    try {
+      const resultado = await api('/api/usuarios', { method: 'POST', body });
+      form.reset();
+      establecerMensajeFormulario('crearUsuarioMensaje', `Cuenta ${resultado.usuario.username} creada. Compartí la contraseña inicial por un canal seguro.`);
+      await cargarUsuarios();
+    } catch (error) {
+      establecerMensajeFormulario('crearUsuarioMensaje', error.message, true);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+}
+
 async function cargarUsuarios() {
   conectarCambioPassword();
+  conectarCreacionUsuario();
+  const formulario = el('crearUsuarioForm');
+  const selectorBloque = el('nuevoUsuarioBloque');
+  if (formulario && selectorBloque && !selectorBloque.dataset.cargado) {
+    await actualizarOpcionesBloque(selectorBloque);
+    selectorBloque.dataset.cargado = '1';
+  }
   const usuarios = await api('/api/usuarios');
   texto('usuariosTotal', usuarios.length);
   texto('usuariosActivos', usuarios.filter(u => u.conectado).length);
@@ -531,6 +600,11 @@ async function cargarConcejales() {
 }
 
 async function cargarBloques() {
+  const panel = el('crearBloquePanel');
+  if (panel && !esAdmin()) {
+    panel.hidden = true;
+  }
+  conectarCreacionBloque();
   const bloques = await api('/api/bloques');
   texto('bloquesTotal', bloques.length);
   texto('bloquesIntegrantes', bloques.reduce((sum, b) => sum + b.miembros, 0));
@@ -564,6 +638,31 @@ async function cargarBloques() {
   });
 }
 
+function conectarCreacionBloque() {
+  const form = el('crearBloqueForm');
+  if (!form || form.dataset.listo) {
+    return;
+  }
+  form.dataset.listo = '1';
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const submit = form.querySelector('[type="submit"]');
+    const body = Object.fromEntries(new FormData(form).entries());
+    submit.disabled = true;
+    try {
+      const resultado = await api('/api/bloques', { method: 'POST', body });
+      const nombre = resultado.bloque.nombre;
+      form.reset();
+      establecerMensajeFormulario('crearBloqueMensaje', `Bloque ${nombre} creado. Ya podés asignarlo en Usuarios.`);
+      await cargarBloques();
+    } catch (error) {
+      establecerMensajeFormulario('crearBloqueMensaje', error.message, true);
+    } finally {
+      submit.disabled = false;
+    }
+  });
+}
+
 async function cargarMunicipios() {
   const datos = await api('/api/municipios');
   const municipios = datos.municipios;
@@ -582,6 +681,22 @@ async function cargarMunicipios() {
 }
 
 async function cargarSesiones() {
+  conectarCreacionSesion();
+  const form = el('crearSesionForm');
+  if (form) {
+    const fecha = form.elements.namedItem('date');
+    if (!fecha.value) {
+      const hoy = new Date();
+      hoy.setMinutes(hoy.getMinutes() - hoy.getTimezoneOffset());
+      fecha.value = hoy.toISOString().slice(0, 10);
+    }
+    const concejales = await api('/api/councillors');
+    const quorum = form.elements.namedItem('quorumRequired');
+    quorum.max = String(Math.max(concejales.length, 1));
+    if (!quorum.value) {
+      quorum.value = String(Math.max(1, Math.ceil(concejales.length / 2)));
+    }
+  }
   const sesiones = await api('/api/sessions');
   const activa = sesiones.find(s => s.active) || sesiones[0];
   texto('sesionesTotal', sesiones.length);
@@ -607,6 +722,37 @@ async function cargarSesiones() {
         })
         : etiqueta('Solo lectura', 'gris')
   ])), 7);
+}
+
+function conectarCreacionSesion() {
+  const form = el('crearSesionForm');
+  if (!form || form.dataset.listo) {
+    return;
+  }
+  form.dataset.listo = '1';
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const submit = form.querySelector('[type="submit"]');
+    const campos = Object.fromEntries(new FormData(form).entries());
+    const body = {
+      name: campos.name,
+      date: campos.date,
+      quorumRequired: Number(campos.quorumRequired),
+      active: form.elements.namedItem('active').checked
+    };
+    submit.disabled = true;
+    try {
+      const resultado = await api('/api/sessions', { method: 'POST', body });
+      establecerMensajeFormulario('crearSesionMensaje', `Sesión ${resultado.session.name} creada${resultado.session.active ? ' y activada' : ''}.`);
+      form.reset();
+      form.elements.namedItem('active').checked = true;
+      await cargarSesiones();
+    } catch (error) {
+      establecerMensajeFormulario('crearSesionMensaje', error.message, true);
+    } finally {
+      submit.disabled = false;
+    }
+  });
 }
 
 async function cargarAsistenciaQr() {
@@ -706,20 +852,25 @@ async function cargarOrden() {
 }
 
 async function cargarProyectos() {
+  conectarCreacionProyecto();
   const proyectos = await api('/api/projects');
   texto('proyectosTotal', proyectos.length);
-  texto('proyectosAbiertos', proyectos.filter(p => p.status === 'abierta').length);
+  texto('proyectosPendientes', proyectos.filter(p => p.status === 'abierta' && !p.active).length);
+  texto('proyectosAbiertos', proyectos.filter(p => p.active).length);
   texto('proyectosCerrados', proyectos.filter(p => p.status !== 'abierta').length);
   cuerpo('tbodyProyectos', proyectos.map(p => fila([
     p.id,
     p.project,
     p.title,
     p.type,
-    etiqueta(p.status === 'abierta' ? 'En votación' : 'Finalizado', p.status === 'abierta' ? 'verde' : 'gris'),
+    etiqueta(
+      p.active ? 'En votación' : p.status === 'abierta' ? 'Pendiente' : 'Finalizado',
+      p.active ? 'verde' : 'gris'
+    ),
     p.counts.afirmativo,
     p.counts.negativo,
     p.counts.abstencion,
-    p.status === 'abierta' && puedeGestionar()
+    p.status === 'abierta' && !p.active && puedeGestionar()
       ? boton('Activar', async () => {
         try {
           await api(`/api/project/${p.id}/activate`, { method: 'POST' });
@@ -728,8 +879,32 @@ async function cargarProyectos() {
           console.error(error);
         }
       })
-      : etiqueta(p.status === 'abierta' ? 'Solo lectura' : 'Finalizado', 'gris')
+      : etiqueta(p.active ? 'Activo' : p.status === 'abierta' ? 'Pendiente' : 'Finalizado', p.active ? 'verde' : 'gris')
   ])), 9);
+}
+
+function conectarCreacionProyecto() {
+  const form = el('crearProyectoForm');
+  if (!form || form.dataset.listo) {
+    return;
+  }
+  form.dataset.listo = '1';
+  form.addEventListener('submit', async event => {
+    event.preventDefault();
+    const submit = form.querySelector('[type="submit"]');
+    const body = Object.fromEntries(new FormData(form).entries());
+    submit.disabled = true;
+    try {
+      const resultado = await api('/api/projects', { method: 'POST', body });
+      establecerMensajeFormulario('crearProyectoMensaje', `Proyecto ${resultado.project.project} creado sin votos. Activá el expediente cuando comience su tratamiento.`);
+      form.reset();
+      await cargarProyectos();
+    } catch (error) {
+      establecerMensajeFormulario('crearProyectoMensaje', error.message, true);
+    } finally {
+      submit.disabled = false;
+    }
+  });
 }
 
 function seccionVotacion(contenedor, votacion) {

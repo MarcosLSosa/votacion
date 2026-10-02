@@ -43,6 +43,8 @@ rutas de páginas y app.get('*')
 - `POST /api/auth/login` valida `username`/`password` contra hashes scrypt en `councillors.password`, marca `connected = true` y crea una sesión persistente en SQLite. Sólo se almacena el SHA-256 del token aleatorio; el navegador recibe el token en cookie HttpOnly.
 - `VOTACION_BOOTSTRAP_PASSWORD` (mínimo 12 caracteres) es obligatorio para la primera inicialización y para migrar contraseñas legadas en texto plano. La cuenta `sofia` recibe esta clave y las demás claves legadas se reemplazan por valores aleatorios. En `NODE_ENV=test`, `VOTACION_TEST_PASSWORD` proporciona la clave de semilla para pruebas aisladas.
 - `PUT /api/usuarios/:id/password` permite a Administración asignar una nueva contraseña individual; invalida los tokens previos del usuario y nunca devuelve hashes.
+- Administración crea bloques y cuentas con `POST /api/bloques` y `POST /api/usuarios`; las contraseñas se validan y se hashean antes de persistirlas. Las nuevas cuentas amplían los pendientes de los expedientes abiertos.
+- Mesa y Administración crean convocatorias (`POST /api/sessions`) y expedientes (`POST /api/projects`). Los proyectos se agregan al orden del día sin votos y sólo entran al timer cuando alguien autorizado los activa.
 - `POST /api/asistencia/checkin` valida usuario, contraseña y código QR de la sesión activa; el registro duplicado de presencia se rechaza.
 - La cookie es `HttpOnly; SameSite=Lax; Max-Age=28800` y además `Secure` en producción. El navegador guarda el perfil y el token CSRF en `sessionStorage`, no el token de sesión.
 - Las sesiones vencen a los 30 minutos sin actividad de usuario o a las 8 horas absolutas. `X-User-Activity-At` permite distinguir interacciones reales de las consultas automáticas de actualización; `last_seen_at` no renueva la ventana de inactividad.
@@ -77,6 +79,7 @@ Cosas a saber:
 - El código de asistencia se autogenera y queda atado a la sesión activa (`qr_codigo` + `qr_sesion`); si cambia la sesión se emite un código nuevo y los links viejos dejan de servir.
 - En desarrollo/pruebas, el seed (`seedDatabase`) crea datos ficticios cuando faltan. En `NODE_ENV=production` no inserta datos demo: exige las tablas base provisionadas y un perfil Administrador, y aborta el arranque indicando lo faltante.
 - Para una instancia real no se debe publicar la base de desarrollo con personas/expedientes ficticios. Provisioná una base oficial con claves scrypt y asigná/verificá permisos antes de habilitar acceso público. No hay aún un importador de padrón oficial.
+- Para recorrer el flujo desde cero en desarrollo, `NODE_ENV=test` junto con `VOTACION_EMPTY_START=1` conserva sólo una cuenta administradora `sofia` (clave `VOTACION_TEST_PASSWORD`) y las opciones de configuración mínimas, sin bloques, concejales, sesiones ni proyectos ficticios. Esta variable se ignora fuera del modo test.
 
 ## Auditoría
 

@@ -293,6 +293,66 @@ else
   FALLOS=$((FALLOS + 1))
 fi
 
+echo "== 12. Alta inicial del cuerpo y la sesión =="
+block_body='{"nombre":"Bloque de prueba","sigla":"BPT","color":"#3569a8","fundado":"2026"}'
+block_response=$(curl -s -w $'\n%{http_code}' -X POST "$APP_URL/api/bloques" -H 'Content-Type: application/json' "${AUTH[@]}" -d "$block_body")
+block_status="${block_response##*$'\n'}"
+block_response="${block_response%$'\n'*}"
+paso "POST crear bloque como Administración" "$block_status" 201
+block_id=$(grep -o '"id":[0-9]*' <<<"$block_response" | head -n1 | cut -d: -f2)
+paso "POST crear bloque duplicado" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/bloques" -H 'Content-Type: application/json' "${AUTH[@]}" -d "$block_body")" 409
+paso "POST concejal no puede crear bloque" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/bloques" -H 'Content-Type: application/json' -b "$JAR_CONCEJAL" -d '{"nombre":"Bloque no autorizado","sigla":"BNA","color":"#3569a8"}')" 403
+
+new_username="alta.$RANDOM"
+user_body="{\"name\":\"Concejal de prueba\",\"role\":\"Concejal\",\"username\":\"$new_username\",\"perfil\":\"concejal\",\"bloqueId\":$block_id,\"password\":\"Clave-Nueva-2026\"}"
+paso "POST crear usuario como Administración" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/usuarios" -H 'Content-Type: application/json' "${AUTH[@]}" -d "$user_body")" 201
+paso "POST usuario duplicado" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/usuarios" -H 'Content-Type: application/json' "${AUTH[@]}" -d "$user_body")" 409
+paso "POST concejal no puede crear usuario" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/usuarios" -H 'Content-Type: application/json' -b "$JAR_CONCEJAL" -d "$user_body")" 403
+
+session_body="{\"name\":\"Sesión de prueba\",\"date\":\"$(date +%Y-%m-%d)\",\"quorumRequired\":1,\"active\":true}"
+paso "POST crear y activar convocatoria como Mesa" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/sessions" -H 'Content-Type: application/json' "${AUTH[@]}" -d "$session_body")" 201
+paso "POST concejal no puede crear convocatoria" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/sessions" -H 'Content-Type: application/json' -b "$JAR_CONCEJAL" -d "$session_body")" 403
+
+project_body='{"project":"Proyecto de prueba","title":"Expediente para verificar el alta","type":"Ordenanza","description":"Proyecto creado por la prueba automatizada."}'
+paso "POST crear proyecto como Mesa" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/projects" -H 'Content-Type: application/json' "${AUTH[@]}" -d "$project_body")" 201
+paso "POST proyecto duplicado" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/projects" -H 'Content-Type: application/json' "${AUTH[@]}" -d "$project_body")" 409
+orden_alta=$(curl -s "${AUTH[@]}" "$APP_URL/api/order-of-day")
+PASOS=$((PASOS + 1))
+if grep -q 'Proyecto de prueba' <<<"$orden_alta"; then
+  printf '  ok    %-48s el proyecto figura en el orden del día\n' 'GET /api/order-of-day'
+else
+  printf '  FALLA %-48s el proyecto no se agregó al orden\n' 'GET /api/order-of-day'
+  FALLOS=$((FALLOS + 1))
+fi
+projects_before_activation=$(curl -s "${AUTH[@]}" "$APP_URL/api/projects")
+new_project_id=$(grep -o '"id":[0-9]*,"project":"Proyecto de prueba"' <<<"$projects_before_activation" | grep -o '[0-9]*' | head -n1)
+PASOS=$((PASOS + 1))
+if grep -q "\"id\":$new_project_id,\"project\":\"Proyecto de prueba\".*\"active\":false" <<<"$projects_before_activation"; then
+  printf '  ok    %-48s el proyecto nuevo figura pendiente\n' 'GET /api/projects antes de activar'
+else
+  printf '  FALLA %-48s el proyecto nuevo debe figurar pendiente\n' 'GET /api/projects antes de activar'
+  FALLOS=$((FALLOS + 1))
+fi
+paso "POST Mesa activa votación nueva" \
+  "$(curl -s -o /dev/null -w '%{http_code}' -X POST "$APP_URL/api/project/$new_project_id/activate" "${AUTH[@]}")" 200
+projects_after_activation=$(curl -s "${AUTH[@]}" "$APP_URL/api/projects")
+PASOS=$((PASOS + 1))
+if grep -q "\"id\":$new_project_id,\"project\":\"Proyecto de prueba\".*\"active\":true" <<<"$projects_after_activation"; then
+  printf '  ok    %-48s el proyecto activo queda identificado\n' 'GET /api/projects tras activar'
+else
+  printf '  FALLA %-48s no se identificó el proyecto activo\n' 'GET /api/projects tras activar'
+  FALLOS=$((FALLOS + 1))
+fi
+
 echo "== 12. Logout =="
 paso "POST logout sin token CSRF" "$(curl -s -o /dev/null -w '%{http_code}' -X POST -b "$JAR" "$APP_URL/api/auth/logout" -H "Origin: $APP_URL")" 403
 paso "POST logout con token CSRF" "$(curl -s -o /dev/null -w '%{http_code}' -X POST -b "$JAR" -c "$JAR" "$APP_URL/api/auth/logout" -H "Origin: $APP_URL" -H "X-CSRF-Token: $CSRF")" 200

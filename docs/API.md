@@ -54,7 +54,10 @@ Resumen del proyecto activo para el dashboard.
 Mismo objeto para un proyecto puntual; 404 si no existe.
 
 ### `GET /api/projects`
-Array de los 3 proyectos con `counts` recalculados.
+Array de proyectos con `counts` recalculados y `active: true` sólo para el proyecto que está en votación. Un proyecto con `status: "abierta"` y `active: false` está pendiente de activación; `status: "finalizada"` indica que ya cerró.
+
+### `POST /api/projects` 🔒 (Mesa o Administración)
+Crea un expediente abierto y sin votos con `project`, `title`, `type` y `description` opcional. `sessionType` se toma de la sesión activa; si no hay sesión activa, debe enviarse. Agrega un punto al orden del día y actualiza el contador de la sesión. No inicia el timer: Mesa/Administración activa el expediente cuando comienza el tratamiento.
 
 ### `GET /api/history`
 Idéntico a `/api/projects` pero sólo los que **no** están `abierta`.
@@ -83,6 +86,9 @@ Activa la sesión en la tabla `sessions` (desactiva las demás; si estaba `cerra
 
 ### `GET /api/sessions`
 Todas las sesiones: `{ id, name, date, status, quorumRequired, projectCount, active }`.
+
+### `POST /api/sessions` 🔒 (Mesa o Administración)
+Crea una convocatoria con `{ "name": "Sesión Ordinaria", "date": "2026-10-02", "quorumRequired": 7, "active": true }`. El quórum debe estar entre 1 y el número de integrantes cargados. Al crearla activa, desactiva la anterior. Responde `201 { "session": { ... } }`.
 
 ### `GET /api/order-of-day`
 Puntos del orden del día: `{ id, title, status, presenter }`.
@@ -167,11 +173,17 @@ Permite a Administración asignar una clave individual sin leer ni recuperar la 
 ### `GET /api/usuarios`
 `{ id, name, role, username, email, bloque, conectado, estado, votosEmitidos }`. El `email` se deriva de `username@concejo.local`.
 
+### `POST /api/usuarios` 🔒 (Administración)
+Crea una cuenta con nombre, cargo, username, perfil (`concejal`, `mesa` o `admin`), bloque opcional y contraseña inicial. La clave debe tener 12–256 caracteres; el username, 3–40 caracteres alfanuméricos, punto, guion o guion bajo. La contraseña se almacena con scrypt y nunca se devuelve ni se registra. Las cuentas nuevas se agregan a los pendientes de los proyectos abiertos.
+
 ### `GET /api/councillors`
 `{ id, name, role, connected, bloqueId, bloque, voted, vote }` (voto sobre el proyecto activo).
 
 ### `GET /api/bloques`
 `{ id, nombre, sigla, color, fundado, miembros, presentes, concejales: [ { id, name, role, connected } ] }`.
+
+### `POST /api/bloques` 🔒 (Administración)
+Crea un bloque con `{ "nombre": "Bloque Centro", "sigla": "BC", "color": "#3569a8", "fundado": "2026" }`. Nombre y sigla no se pueden repetir; después se asignan integrantes desde Usuarios.
 
 ### `GET /api/municipios`
 `{ "municipios": [ { id, nombre, departamento, habitantes, distrito } ], "totalHabitantes": 79790 }`.
